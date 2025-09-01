@@ -14,10 +14,11 @@ def main():
     target_dir = r"C:\x_cloned_repos_x"
     # Example whitelist (comma-separated repo names to include)
     whitelist = ",".join([
-        "x_make_git_repo_clones_x",
+        "x_make_github_clones_x",
         "x_make_markdown_x",
         "x_make_pip_updates_x",
         "x_make_pypi_x",
+        "x_legatus_tactica_core_x"
     ])
     print("Using whitelist:", whitelist)
     cloner = x_cls_clone_all_x(username="eye4357", target_dir=target_dir, yes=True, names=whitelist)
