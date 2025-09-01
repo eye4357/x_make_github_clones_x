@@ -14,6 +14,7 @@ def main():
     target_dir = r"C:\x_cloned_repos_x"
     # Example whitelist (comma-separated repo names to include)
     whitelist = ",".join([
+        "x_0_make_all_x",
         "x_make_github_clones_x",
         "x_make_markdown_x",
         "x_make_pip_updates_x",

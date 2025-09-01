@@ -242,12 +242,43 @@ class x_cls_clone_all_x:
                 # Update if present
                 print(f"Updating {name} in {dest}")
                 try:
-                    rc = subprocess.run(["git", "-C", dest, "pull"], check=False).returncode
+                    result = subprocess.run(["git", "-C", dest, "pull"], check=False, capture_output=True, text=True)
+                    rc = result.returncode
                     if rc == 0:
                         updated += 1
                     else:
-                        print(f"git pull failed for {name} (rc={rc})")
-                        failed += 1
+                        # Check for 'not a git repository' error
+                        if "not a git repository" in result.stderr:
+                            print(f"{dest} is not a git repository. Recloning...")
+                            import shutil
+                            import stat
+                            def on_rm_error(func, path, exc_info):
+                                import os
+                                try:
+                                    os.chmod(path, stat.S_IWRITE)
+                                except Exception:
+                                    pass
+                                try:
+                                    func(path)
+                                except Exception:
+                                    pass
+                            try:
+                                shutil.rmtree(dest, onerror=on_rm_error)
+                            except Exception as e:
+                                print(f"Failed to remove {dest}: {e}")
+                                failed += 1
+                                continue
+                            rc2 = self.clone_repo(clone_url, dest, self.shallow)
+                            if rc2 == 0:
+                                cloned += 1
+                                print(f"Reclone successful for {name}.")
+                            else:
+                                print(f"Reclone failed for {name} (rc={rc2})")
+                                failed += 1
+                        else:
+                            print(f"git pull failed for {name} (rc={rc})")
+                            print(result.stderr)
+                            failed += 1
                 except Exception as e:
                     print(f"Exception during git pull for {name}: {e}")
                     failed += 1
