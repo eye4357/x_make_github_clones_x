@@ -1,11 +1,11 @@
-"""Tiny example showing how a downstream process can invoke x_cls_clone_all_x.
+"""Tiny example showing how a downstream process can invoke x_cls_make_github_clones_x.
 
 This example imports the cloner, constructs it with desired options, runs it,
 and consumes the returned timestamped folder path. This is a minimal demo
 and not a full test harness.
 """
 
-from x_cls_clone_all_x import x_cls_clone_all_x
+from x_cls_make_github_clones_x import x_cls_make_github_clones_x
 
 
 
@@ -22,7 +22,7 @@ def main():
         "x_legatus_tactica_core_x"
     ])
     print("Using whitelist:", whitelist)
-    cloner = x_cls_clone_all_x(username="eye4357", target_dir=target_dir, yes=True, names=whitelist)
+    cloner = x_cls_make_github_clones_x(username="eye4357", target_dir=target_dir, yes=True, names=whitelist)
 
     # Run the cloner and get the target folder path
     try:

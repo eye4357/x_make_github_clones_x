@@ -41,10 +41,10 @@ except Exception:  # pragma: no cover - extremely unlikely on CPython
     sys.exit(1)
 
 # Module-level default target directory (script-level variable) - empty by default
-# The concrete default is set in main() and assigned to x_cls_clone_all_x.DEFAULT_TARGET_DIR
+# The concrete default is set in main() and assigned to x_cls_make_github_clones_x.DEFAULT_TARGET_DIR
 DEFAULT_TARGET_DIR = ""
 
-class x_cls_clone_all_x:
+class x_cls_make_github_clones_x:
     """Clone GitHub repositories for a user.
 
     Tweakable parameters are exposed as class variables so you can subclass or
