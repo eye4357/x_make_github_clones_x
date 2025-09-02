@@ -17,11 +17,11 @@ def main():
     # Example whitelist (comma-separated repo names to include)
     whitelist = ",".join([
         "x_0_make_all_x",
+        "x_legatus_tactica_core_x",
         "x_make_github_clones_x",
         "x_make_markdown_x",
         "x_make_pip_updates_x",
-        "x_make_pypi_x",
-        "x_legatus_tactica_core_x"
+        "x_make_pypi_x"
     ])
     print("Using whitelist:", whitelist)
     cloner = x_cls_make_github_clones_x(username="eye4357", target_dir=target_dir, yes=True, names=whitelist)
