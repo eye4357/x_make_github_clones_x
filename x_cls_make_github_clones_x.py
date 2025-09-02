@@ -300,6 +300,11 @@ class x_cls_make_github_clones_x:
                 f.write(
                     """name: CI\n\non:\n  push:\n  pull_request:\n\njobs:\n  lint-type:\n    runs-on: windows-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-python@v5\n        with:\n          python-version: '3.13'\n      - name: Cache pip\n        uses: actions/cache@v4\n        with:\n          path: ~\\AppData\\Local\\pip\\Cache\n          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}\n          restore-keys: |\n            ${{ runner.os }}-pip-\n      - name: Install tools\n        run: |\n          python -m pip install -U pip\n          python -m pip install -U ruff black mypy\n      - name: Ruff\n        run: ruff check .\n      - name: Black (check)\n        run: black --check .\n      - name: Mypy\n        run: mypy .\n"""
                 )
+            # .gitignore (template from x_0_make_all_x)
+            gitignore_path = os.path.join(dest, ".gitignore")
+            gitignore_template = """# Python\n__pycache__/\n*.pyc\n*.pyo\n*.pyd\n*.so\n*.egg\n*.egg-info/\ndist/\nbuild/\n.eggs/\n*.manifest\n*.spec\n\n# VS Code\n.vscode/\n\n# OS\n.DS_Store\nThumbs.db\n"""
+            with open(gitignore_path, "w", encoding="utf-8") as f:
+                f.write(gitignore_template)
 
         print(f"Done. cloned={cloned} updated={updated} skipped={skipped} failed={failed}")
         self.exit_code = 0 if failed == 0 else 4
