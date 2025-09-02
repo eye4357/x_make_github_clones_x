@@ -4,6 +4,8 @@ This example imports the cloner, constructs it with desired options, runs it,
 and consumes the returned timestamped folder path. This is a minimal demo
 and not a full test harness.
 """
+import sys
+sys.path.insert(0, r"C:\Users\eye43\AppData\Local\Programs\Python\Python313\Lib\site-packages")
 
 from x_cls_make_github_clones_x import x_cls_make_github_clones_x
 
