@@ -27,7 +27,3 @@ warn_redundant_casts = true
 no_implicit_optional = true
 strict_optional = true
 exclude = "(^.venv/|^.mypy_cache/|^build/|^dist/)"
-
-[project]
-name = "x_make_github_clones_x"
-version = "2.0.1"
