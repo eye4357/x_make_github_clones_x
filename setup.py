@@ -6,7 +6,7 @@ with open(os.path.join("docs", "README.md"), encoding="utf-8") as fh:
 
 setup(
     name="x_make_github_clones_x",
-    version="1.0.2",
+    version="1.0.3",
     author="Roy GM",
     author_email="eye4357@outlook.com",
     description="Makes GitHub repository clones.",
