@@ -7,7 +7,7 @@ and not a full test harness.
 import sys
 sys.path.insert(0, r"C:\Users\eye43\AppData\Local\Programs\Python\Python313\Lib\site-packages")
 
-from x_cls_make_github_clones_x import x_cls_make_github_clones_x
+from x_make_github_clones_x.x_cls_make_github_clones_x import x_cls_make_github_clones_x
 
 
 
