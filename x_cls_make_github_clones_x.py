@@ -135,7 +135,7 @@ class x_cls_make_github_clones_x:
                 print("Unexpected response from GitHub API:", data)
                 sys.exit(3)
 
-            data_list: list[dict[str, Any]] = data
+            data_list = cast(list[dict[str, Any]], data)
             if not data_list:
                 break
 
@@ -171,7 +171,7 @@ class x_cls_make_github_clones_x:
                 print("Unexpected response from GitHub API:", data_local)
                 sys.exit(3)
 
-            data_local_list: list[dict[str, Any]] = data_local
+            data_local_list = cast(list[dict[str, Any]], data_local)
             if not data_local_list:
                 break
 
@@ -285,19 +285,64 @@ class x_cls_make_github_clones_x:
         import shutil
         import stat
 
-        def _on_rm_error(func, path, exc_info):
+        def _on_rm_error(func: Any, path: str, exc_info: Any) -> None:
+            """Compatibility onerror/onexc handler for rmtree.
+
+            Parameters typed broadly to satisfy static analysis. The handler
+            attempts to make the path writable and retry the operation.
+            """
             try:
                 os.chmod(path, stat.S_IWRITE)
             except Exception:
                 pass
             try:
-                func(path)
+                # Some rmtree callers pass the failing function as the first
+                # arg, others expect a (path, exc_info) style handler. We try
+                # to call with the path if the provided 'func' is callable.
+                if callable(func):
+                    try:
+                        func(path)
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
         try:
             print(f"{dest} is not a git repository. Recloning...")
-            shutil.rmtree(dest, onerror=_on_rm_error)
+            # Prefer the newer `onexc` parameter when available; fall back to
+            # `onerror` on older Python versions. Build kwargs dynamically to
+            # avoid passing an unsupported keyword directly.
+            try:
+                import inspect
+
+                sig = inspect.signature(shutil.rmtree)
+                kwargs: dict[str, Any] = {}
+                if "onexc" in sig.parameters:
+                    kwargs["onexc"] = _on_rm_error
+                else:
+                    # Older Pythons expect `onerror`.
+                    kwargs["onerror"] = _on_rm_error
+                try:
+                    shutil.rmtree(dest, **kwargs)
+                except TypeError:
+                    # Some runtimes may reject kwargs; try plain rmtree.
+                    try:
+                        shutil.rmtree(dest)
+                    except Exception:
+                        # Give up gracefully and continue to reclone step.
+                        pass
+            except Exception:
+                # Best-effort fallback: attempt rmtree with onerror where possible.
+                try:
+                    # Fall back to onerror for very old runtimes. mypy/ruff may
+                    # still warn about deprecated 'onerror'; silence for this
+                    # compatibility branch only.
+                    shutil.rmtree(dest, onerror=_on_rm_error)
+                except Exception:
+                    try:
+                        shutil.rmtree(dest)
+                    except Exception:
+                        pass
         except Exception as e:
             print(f"Failed to remove {dest}: {e}")
             return "failed"
@@ -309,14 +354,27 @@ class x_cls_make_github_clones_x:
         return "failed"
 
     def _write_standard_configs(self, name: str, dest: str) -> None:
+        """No-op: cloner is intentionally bare-bones and must not create project files.
+
+        All project scaffolding (pyproject, pre-commit, CI workflows, etc.) is now
+        the responsibility of the PyPI publisher class which runs in a controlled
+        build directory. This prevents accidental overwrites in existing repos.
+        """
+        # Intentionally do nothing. Keep repository folders minimal.
+        return
+
+    def _write_precommit_config(self, name: str, dest: str) -> None:
         precommit_path = os.path.join(dest, ".pre-commit-config.yaml")
+        try:
+            with open(precommit_path, "w", encoding="utf-8") as f:
+                f.write(
+                    """repos:\n  - repo: https://github.com/pre-commit/pre-commit-hooks\n    rev: v4.6.0\n    hooks:\n      - id: trailing-whitespace\n      - id: end-of-file-fixer\n      - id: check-yaml\n      - id: check-toml\n  - repo: local\n    hooks:\n      - id: ruff\n        name: ruff\n        entry: ruff check\n        language: system\n        types: [python]\n      - id: black\n        name: black\n        entry: black\n        language: system\n        types: [python]\n      - id: mypy\n        name: mypy\n        entry: mypy\n        language: system\n        types: [python]\n        pass_filenames: false\n        args: ["."]\n"""
+                )
+        except Exception as e:
+            print(f"Failed to write pre-commit config for {name}: {e}")
+
+    def _maybe_write_pyproject(self, name: str, dest: str) -> None:
         pyproject_path = os.path.join(dest, "pyproject.toml")
-        ci_yml_path = os.path.join(dest, ".github", "workflows", "ci.yml")
-        os.makedirs(os.path.dirname(ci_yml_path), exist_ok=True)
-        with open(precommit_path, "w", encoding="utf-8") as f:
-            f.write(
-                """repos:\n  - repo: https://github.com/pre-commit/pre-commit-hooks\n    rev: v4.6.0\n    hooks:\n      - id: trailing-whitespace\n      - id: end-of-file-fixer\n      - id: check-yaml\n      - id: check-toml\n  - repo: local\n    hooks:\n      - id: ruff\n        name: ruff\n        entry: ruff check\n        language: system\n        types: [python]\n      - id: black\n        name: black\n        entry: black\n        language: system\n        types: [python]\n      - id: mypy\n        name: mypy\n        entry: mypy\n        language: system\n        types: [python]\n        pass_filenames: false\n        args: ["."]\n"""
-            )
         write_pyproject = True
         if os.path.exists(pyproject_path):
             try:
@@ -335,25 +393,100 @@ class x_cls_make_github_clones_x:
                 print(
                     f"Existing pyproject.toml in {name} found; not overwriting (enable auto_overwrite_configs to force)."
                 )
-        if write_pyproject:
+        if not write_pyproject:
+            return
+        pyproject_content = (
+            f"[project]\n"
+            f'name = "{name}"\n'
+            f'version = "0.0.0"\n'
+            f'description = "A repository in the {self.username} workspace. Update as needed."\n'
+            f"authors = [{{name = \"{self.username or 'author'}\"}}]\n\n"
+            '[tool.black]\nline-length = 100\ntarget-version = ["py313"]\n\n'
+            '[tool.ruff]\nline-length = 100\ntarget-version = "py313"\nexclude = [\n  ".git",\n  "__pycache__",\n  ".mypy_cache",\n  ".ruff_cache",\n  ".venv",\n  "build",\n  "dist",\n]\n\n'
+            '[tool.ruff.lint]\nselect = ["E", "F", "I", "UP", "B", "PL", "RUF"]\nignore = ["E501", "E402", "PLC0415", "PLR2004", "PLR0913"]\n\n'
+            '[tool.mypy]\npython_version = "3.13"\nignore_missing_imports = true\nwarn_unused_ignores = true\nwarn_redundant_casts = true\nno_implicit_optional = true\nstrict_optional = true\nexclude = "(^.venv/|^.mypy_cache/|^build/|^dist/)"\n'
+        )
+        try:
             with open(pyproject_path, "w", encoding="utf-8") as f:
+                f.write(pyproject_content)
+        except Exception as e:
+            print(f"Failed to write pyproject.toml for {name}: {e}")
+
+    def _write_ci_yaml(self, dest: str) -> None:
+        ci_yml_path = os.path.join(dest, ".github", "workflows", "ci.yml")
+        try:
+            with open(ci_yml_path, "w", encoding="utf-8") as f:
                 f.write(
-                    """[tool.black]\nline-length = 100\ntarget-version = [\"py313\"]\n\n[tool.ruff]\nline-length = 100\ntarget-version = \"py313\"\nexclude = [\n  ".git",\n  "__pycache__",\n  ".mypy_cache",\n  ".ruff_cache",\n  ".venv",\n  "build",\n  "dist",\n]\n\n[tool.ruff.lint]\nselect = [\"E\", \"F\", \"I\", \"UP\", \"B\", \"PL\", \"RUF\"]\nignore = [\"E501\", \"E402\", \"PLC0415\", \"PLR2004\", \"PLR0913\"]\n\n[tool.mypy]\npython_version = \"3.13\"\nignore_missing_imports = true\nwarn_unused_ignores = true\nwarn_redundant_casts = true\nno_implicit_optional = true\nstrict_optional = true\nexclude = \"(^.venv/|^.mypy_cache/|^build/|^dist/)\"\n"""
+                    """name: CI\n\non:\n  push:\n  pull_request:\n\njobs:\n  lint-type:\n    runs-on: windows-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-python@v5\n        with:\n          python-version: '3.13'\n      - name: Cache pip\n        uses: actions/cache@v4\n        with:\n          path: ~\\AppData\\Local\\pip\\Cache\n          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}\n          restore-keys: |\n            ${{ runner.os }}-pip-\n      - name: Install tools\n        run: |\n          python -m pip install -U pip\n          python -m pip install -U ruff black mypy\n      - name: Ruff\n        run: ruff check .\n      - name: Black (check)\n        run: black --check .\n      - name: Mypy\n        run: mypy .\n"""
                 )
-        with open(ci_yml_path, "w", encoding="utf-8") as f:
-            f.write(
-                """name: CI\n\non:\n  push:\n  pull_request:\n\njobs:\n  lint-type:\n    runs-on: windows-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-python@v5\n        with:\n          python-version: '3.13'\n      - name: Cache pip\n        uses: actions/cache@v4\n        with:\n          path: ~\\AppData\\Local\\pip\\Cache\n          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}\n          restore-keys: |\n            ${{ runner.os }}-pip-\n      - name: Install tools\n        run: |\n          python -m pip install -U pip\n          python -m pip install -U ruff black mypy\n      - name: Ruff\n        run: ruff check .\n      - name: Black (check)\n        run: black --check .\n      - name: Mypy\n        run: mypy .\n"""
-            )
+        except Exception as e:
+            print(f"Failed to write CI workflow for {dest}: {e}")
+
+    def _write_gitignore_and_requirements(self, name: str, dest: str) -> None:
         gitignore_path = os.path.join(dest, ".gitignore")
         gitignore_template = """# Python\n__pycache__/\n*.pyc\n*.pyo\n*.pyd\n*.so\n*.egg\n*.egg-info/\ndist/\nbuild/\n.eggs/\n*.manifest\n*.spec\n\n# VS Code\n.vscode/\n\n# OS\n.DS_Store\nThumbs.db\n"""
-        with open(gitignore_path, "w", encoding="utf-8") as f:
-            f.write(gitignore_template)
+        try:
+            with open(gitignore_path, "w", encoding="utf-8") as f:
+                f.write(gitignore_template)
+        except Exception as e:
+            print(f"Failed to write .gitignore for {name}: {e}")
         requirements_dev_path = os.path.join(dest, "requirements-dev.txt")
         try:
             with open(requirements_dev_path, "w", encoding="utf-8") as f:
                 f.write("pre-commit\nruff\nblack\nmypy\n")
         except Exception as e:
             print(f"Failed to write requirements-dev.txt for {name}: {e}")
+
+    def _write_bootstrap_scripts(self, dest: str) -> None:
+        bootstrap_ps1 = os.path.join(dest, "bootstrap_dev_tools.ps1")
+        bootstrap_sh = os.path.join(dest, "bootstrap_dev_tools.sh")
+        try:
+            with open(bootstrap_ps1, "w", encoding="utf-8") as f:
+                f.write(
+                    "# PowerShell bootstrap: run from the repo root\n"
+                    "python -m pip install -U -r requirements-dev.txt\n"
+                    "python -m pre_commit install\n"
+                    "python -m pre_commit run --all-files\n"
+                )
+        except Exception:
+            pass
+        try:
+            with open(bootstrap_sh, "w", encoding="utf-8") as f:
+                f.write(
+                    "#!/usr/bin/env bash\n"
+                    "# Shell bootstrap: run from the repo root\n"
+                    "python -m pip install -U -r requirements-dev.txt\n"
+                    "python -m pre_commit install\n"
+                    "python -m pre_commit run --all-files\n"
+                )
+        except Exception:
+            pass
+        try:
+            import stat as _stat
+
+            os.chmod(bootstrap_sh, (os.stat(bootstrap_sh).st_mode | _stat.S_IXUSR))
+        except Exception:
+            pass
+
+    def _write_readme(self, name: str, dest: str) -> None:
+        readme_path = os.path.join(dest, "README.md")
+        try:
+            with open(readme_path, "w", encoding="utf-8") as f:
+                f.write(
+                    f"# {name}\n\nThis repository was bootstrapped by the workspace cloner.\n\n"
+                    "To enable development tooling (pre-commit hooks, ruff/black/mypy):\n\n"
+                    "PowerShell:\n\n"
+                    "```powershell\n"
+                    "./bootstrap_dev_tools.ps1\n"
+                    "```\n\n"
+                    "POSIX shell:\n\n"
+                    "```bash\n"
+                    "./bootstrap_dev_tools.sh\n"
+                    "```\n\n"
+                    "Edit `pyproject.toml` to set a proper `name` and `version` for packaging.\n"
+                )
+        except Exception:
+            pass
 
     def _install_pre_commit_hooks(self, dest: str) -> None:
         if not self.auto_install_hooks:
