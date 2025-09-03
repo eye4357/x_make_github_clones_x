@@ -64,19 +64,25 @@ class x_cls_make_github_clones_x:
 
     def __init__(self, username: Optional[str] = None, target_dir: Optional[str] = None, *,
                  shallow: bool = False, include_forks: bool = False, names: Optional[str] = None,
-                 yes: bool = False):
+                 yes: bool = False, auto_install_hooks: bool = True, auto_overwrite_configs: bool = False):
         self.username = username or self.DEFAULT_USERNAME
         self.target_dir = os.path.abspath(target_dir) if target_dir else os.path.abspath(self.DEFAULT_TARGET_DIR)
         self.shallow = shallow
         self.include_forks = include_forks
         self.names = set([n.strip() for n in names.split(",") if n.strip()]) if names else None
         self.yes = yes
+        # If true, attempt to auto-install and run pre-commit hooks inside each cloned repo
+        self.auto_install_hooks = bool(auto_install_hooks)
+        # If true, allow overwriting repo config files like pyproject.toml; otherwise skip to avoid collisions.
+        self.auto_overwrite_configs = bool(auto_overwrite_configs)
         self.token = os.environ.get("GITHUB_TOKEN")
         if not self.token or self.token == "NO_TOKEN_PROVIDED":
             raise RuntimeError("No GitHub token provided in environment. Set GITHUB_TOKEN in your venv.")
         self.auth_username: Optional[str] = None
         # exit code from last run (0 success, non-zero failure)
         self.exit_code = 0
+    # Track repos where we detected pyproject.toml that look like packaging metadata and were not overwritten
+    self._pyproject_conflicts: List[str] = []
 
     def _request_json(self, url: str, headers: Dict[str, str]) -> Any:
         req = Request(url, headers=headers)
@@ -292,10 +298,30 @@ class x_cls_make_github_clones_x:
                 f.write(
                     """repos:\n  - repo: https://github.com/pre-commit/pre-commit-hooks\n    rev: v4.6.0\n    hooks:\n      - id: trailing-whitespace\n      - id: end-of-file-fixer\n      - id: check-yaml\n      - id: check-toml\n  - repo: local\n    hooks:\n      - id: ruff\n        name: ruff\n        entry: ruff check\n        language: system\n        types: [python]\n      - id: black\n        name: black\n        entry: black\n        language: system\n        types: [python]\n      - id: mypy\n        name: mypy\n        entry: mypy\n        language: system\n        types: [python]\n        pass_filenames: false\n        args: [\".\"]\n"""
                 )
-            with open(pyproject_path, "w", encoding="utf-8") as f:
-                f.write(
-                    """[tool.black]\nline-length = 100\ntarget-version = [\"py313\"]\n\n[tool.ruff]\nline-length = 100\ntarget-version = \"py313\"\nexclude = [\n  ".git",\n  "__pycache__",\n  ".mypy_cache",\n  ".ruff_cache",\n  ".venv",\n  "build",\n  "dist",\n]\n\n[tool.ruff.lint]\nselect = [\"E\", \"F\", \"I\", \"UP\", \"B\", \"PL\", \"RUF\"]\nignore = [\"E501\", \"E402\", \"PLC0415\", \"PLR2004\", \"PLR0913\"]\n\n[tool.mypy]\npython_version = \"3.13\"\nignore_missing_imports = true\nwarn_unused_ignores = true\nwarn_redundant_casts = true\nno_implicit_optional = true\nstrict_optional = true\nexclude = \"(^.venv/|^.mypy_cache/|^build/|^dist/)\"\n"""
-                )
+            # Write pyproject.toml only if it does not appear to already contain project metadata, or
+            # if auto_overwrite_configs is enabled. This avoids clobbering authors' package metadata which
+            # would conflict with x_make_pypi_x's update logic.
+            write_pyproject = True
+            if os.path.exists(pyproject_path):
+                try:
+                    with open(pyproject_path, "r", encoding="utf-8") as pf:
+                        existing = pf.read()
+                except Exception:
+                    existing = ""
+                # Heuristic: if it contains [project] or name/version keys, treat as an existing project file
+                if "[project]" in existing or "name =" in existing or "version =" in existing:
+                    write_pyproject = False
+                    print(f"Existing pyproject.toml in {name} appears to contain project metadata; skipping overwrite to avoid collision with packaging tools.")
+                    self._pyproject_conflicts.append(name)
+                else:
+                    if not self.auto_overwrite_configs:
+                        write_pyproject = False
+                        print(f"Existing pyproject.toml in {name} found; not overwriting (enable auto_overwrite_configs to force).")
+            if write_pyproject:
+                with open(pyproject_path, "w", encoding="utf-8") as f:
+                    f.write(
+                        """[tool.black]\nline-length = 100\ntarget-version = [\"py313\"]\n\n[tool.ruff]\nline-length = 100\ntarget-version = \"py313\"\nexclude = [\n  ".git",\n  "__pycache__",\n  ".mypy_cache",\n  ".ruff_cache",\n  ".venv",\n  "build",\n  "dist",\n]\n\n[tool.ruff.lint]\nselect = [\"E\", \"F\", \"I\", \"UP\", \"B\", \"PL\", \"RUF\"]\nignore = [\"E501\", \"E402\", \"PLC0415\", \"PLR2004\", \"PLR0913\"]\n\n[tool.mypy]\npython_version = \"3.13\"\nignore_missing_imports = true\nwarn_unused_ignores = true\nwarn_redundant_casts = true\nno_implicit_optional = true\nstrict_optional = true\nexclude = \"(^.venv/|^.mypy_cache/|^build/|^dist/)\"\n"""
+                    )
             with open(ci_yml_path, "w", encoding="utf-8") as f:
                 f.write(
                     """name: CI\n\non:\n  push:\n  pull_request:\n\njobs:\n  lint-type:\n    runs-on: windows-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-python@v5\n        with:\n          python-version: '3.13'\n      - name: Cache pip\n        uses: actions/cache@v4\n        with:\n          path: ~\\AppData\\Local\\pip\\Cache\n          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}\n          restore-keys: |\n            ${{ runner.os }}-pip-\n      - name: Install tools\n        run: |\n          python -m pip install -U pip\n          python -m pip install -U ruff black mypy\n      - name: Ruff\n        run: ruff check .\n      - name: Black (check)\n        run: black --check .\n      - name: Mypy\n        run: mypy .\n"""
@@ -306,7 +332,45 @@ class x_cls_make_github_clones_x:
             with open(gitignore_path, "w", encoding="utf-8") as f:
                 f.write(gitignore_template)
 
+            # Write a simple requirements-dev.txt to make it easy to install dev tools
+            requirements_dev_path = os.path.join(dest, "requirements-dev.txt")
+            try:
+                with open(requirements_dev_path, "w", encoding="utf-8") as f:
+                    f.write("pre-commit\nruff\nblack\nmypy\n")
+            except Exception as e:
+                print(f"Failed to write requirements-dev.txt for {name}: {e}")
+
+            # Optionally attempt to install and run pre-commit hooks in the cloned repo.
+            # This is best-effort: if pre-commit is not available or the commands fail, we don't abort.
+            if self.auto_install_hooks:
+                try:
+                    import shutil
+
+                    pre_exec = shutil.which("pre-commit")
+                    if pre_exec:
+                        print(f"Installing pre-commit hooks in {dest}")
+                        try:
+                            subprocess.run([pre_exec, "install"], cwd=dest, check=False)
+                        except Exception:
+                            # Fall back to calling by name
+                            subprocess.run(["pre-commit", "install"], cwd=dest, check=False)
+                        # Run hooks once across the repo to ensure formatting/linting is applied
+                        try:
+                            subprocess.run([pre_exec, "run", "--all-files"], cwd=dest, check=False)
+                        except Exception:
+                            subprocess.run(["pre-commit", "run", "--all-files"], cwd=dest, check=False)
+                    else:
+                        print(f"pre-commit not found on PATH; skipping hook install in {dest}. Install pre-commit or run 'pip install -r requirements-dev.txt' to enable it.")
+                except Exception as e:
+                    print(f"Failed to install/run pre-commit hooks in {dest}: {e}")
+
         print(f"Done. cloned={cloned} updated={updated} skipped={skipped} failed={failed}")
+        # Report pyproject.toml collisions (if any)
+        if self._pyproject_conflicts:
+            print("\npyproject.toml collision report: the following repos contain project metadata and were NOT overwritten by the cloner:")
+            for repo_name in sorted(set(self._pyproject_conflicts)):
+                print(f" - {repo_name}")
+            print("If you want the cloner to overwrite these files, construct x_cls_make_github_clones_x with auto_overwrite_configs=True.")
         self.exit_code = 0 if failed == 0 else 4
         if failed:
             raise AssertionError(f"{failed} repositories failed to clone or update")
