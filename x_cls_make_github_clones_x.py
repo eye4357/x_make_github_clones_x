@@ -26,25 +26,7 @@ import time
 from typing import Any, ClassVar, cast
 
 
-# Minimal no-op logger: intentionally silence all logging calls.
-class _NoopLogger:
-    def debug(self, *a: object, **k: object) -> None:
-        return None
-
-    def info(self, *a: object, **k: object) -> None:
-        return None
-
-    def warning(self, *a: object, **k: object) -> None:
-        return None
-
-    def error(self, *a: object, **k: object) -> None:
-        return None
-
-    def exception(self, *a: object, **k: object) -> None:
-        return None
-
-
-logger = _NoopLogger()
+# Logging removed: prints are used directly (INFO->stdout, ERROR->stderr) where needed.
 
 # Templates and file-writing scaffolding removed: this cloner only clones/pulls.
 # Optional removed; no longer needed
@@ -397,7 +379,26 @@ class x_cls_make_github_clones_x:
         the responsibility of the PyPI publisher class which runs in a controlled
         build directory. This prevents accidental overwrites in existing repos.
         """
-        # Intentionally do nothing. Keep repository folders minimal.
+        # Explicit policy: do not write scaffold files by default. If a developer
+        # intends to re-enable this behavior they must opt-in via the
+        # ALLOW_WRITE_YAML_CONFIGS environment variable (set to '1'). This
+        # prevents accidental generation of YAML hooks when the cloner runs.
+        allow = os.environ.get("ALLOW_WRITE_YAML_CONFIGS")
+        if allow and allow.strip() == "1":
+            # Developer has explicitly opted in; still we avoid writing by
+            # default in this code path. If future maintainers implement
+            # generation, they should do so deliberately here.
+            print(
+                "WARN: ALLOW_WRITE_YAML_CONFIGS=1 set; scaffold write allowed by policy but no-op remains by default",
+                file=sys.stderr,
+            )
+            return
+
+        # Default safe behavior: log and no-op.
+        print(
+            "INFO: Repository scaffold write disabled by policy; skipping creation of pyproject/pre-commit/CI workflows.",
+            file=sys.stdout,
+        )
         return
 
     # pre-commit config generation removed per request; do not write .pre-commit-config.yaml
