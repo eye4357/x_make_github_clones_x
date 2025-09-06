@@ -25,21 +25,8 @@ import sys
 import time
 from typing import Any, ClassVar, cast
 
-try:
-    from tools import templates  # type: ignore
-except Exception:
-    # Provide a minimal fallback used only when the `tools` package isn't
-    # available (e.g., in this workspace). This keeps mypy/ruff happy and
-    # preserves runtime behavior for non-destructive inspection.
-    class _TemplatesStub:
-        def __getattr__(self, _name: str) -> str:
-            return ""
 
-    templates = _TemplatesStub()
-from typing import Optional
-
-
-# Local no-op logging shim (logging removed)
+# Minimal no-op logger: intentionally silence all logging calls.
 class _NoopLogger:
     def debug(self, *a: object, **k: object) -> None:
         return None
@@ -57,16 +44,11 @@ class _NoopLogger:
         return None
 
 
-_silent_logger = _NoopLogger()
+logger = _NoopLogger()
 
+# Templates and file-writing scaffolding removed: this cloner only clones/pulls.
+# Optional removed; no longer needed
 
-def setup_basic_logger(
-    name: str = "x_make", *, file_path: Optional[str] = None
-) -> _NoopLogger:
-    return _silent_logger
-
-
-logger = setup_basic_logger("x_make_github_clones_x")
 
 """red rabbit 2025_0902_0944"""
 try:
@@ -75,8 +57,7 @@ try:
     from urllib.parse import urlencode
     from urllib.request import Request, urlopen
 except Exception:  # pragma: no cover - extremely unlikely on CPython
-    logger.error("urllib not available in this Python runtime.")
-    sys.exit(1)
+    raise RuntimeError("urllib not available in this Python runtime.")
 
 # Module-level default target directory (script-level variable) - empty by default
 # Concrete default is set in main() as DEFAULT_TARGET_DIR
@@ -109,9 +90,6 @@ class x_cls_make_github_clones_x:
         shallow: bool = False,
         include_forks: bool = False,
         names: str | None = None,
-        yes: bool = False,
-        auto_install_hooks: bool = True,
-        auto_overwrite_configs: bool = False,
     ):
         self.username = username or self.DEFAULT_USERNAME
         self.target_dir = (
@@ -126,12 +104,7 @@ class x_cls_make_github_clones_x:
             if names
             else None
         )
-        self.yes = yes
-        # If true, attempt to auto-install and run pre-commit hooks inside each cloned repo
-        self.auto_install_hooks = bool(auto_install_hooks)
-        # If true, allow overwriting repo config files like pyproject.toml.
-        # Otherwise skip to avoid collisions with existing packaging metadata.
-        self.auto_overwrite_configs = bool(auto_overwrite_configs)
+        # Intentionally minimal: only keep the flags needed for cloning.
         self.token = os.environ.get("GITHUB_TOKEN")
         if not self.token or self.token == "NO_TOKEN_PROVIDED":
             raise RuntimeError(
@@ -140,8 +113,8 @@ class x_cls_make_github_clones_x:
         self.auth_username: str | None = None
         # exit code from last run (0 success, non-zero failure)
         self.exit_code = 0
-        # Track repos where pyproject.toml looked like packaging metadata and was not overwritten
-        self._pyproject_conflicts: list[str] = []
+
+    # No file-writing; no pyproject conflict tracking.
 
     def _request_json(self, url: str, headers: dict[str, str]) -> Any:
         req = Request(url, headers=headers)
@@ -151,17 +124,15 @@ class x_cls_make_github_clones_x:
         except HTTPError as e:
             body = None
             try:
+                # Some HTTPError objects expose a .read() for body bytes
                 body = e.read().decode("utf-8")
             except Exception:
                 pass
-            logger.error(
-                "GitHub API error: %s %s",
-                getattr(e, "code", "?"),
-                getattr(e, "reason", "?"),
-            )
+            msg = f"GitHub API error: {getattr(e, 'code', '?')} {getattr(e, 'reason', '?')}"
             if body:
-                logger.error(body)
-            sys.exit(2)
+                msg = msg + f" - {body}"
+            print(f"ERROR: {msg}", file=sys.stderr)
+            raise RuntimeError(msg)
 
     def fetch_repos(
         self, username: str, token: str | None, include_forks: bool
@@ -182,8 +153,9 @@ class x_cls_make_github_clones_x:
             data: Any = self._request_json(url, headers)
 
             if not isinstance(data, list):
-                logger.error("Unexpected response from GitHub API: %s", data)
-                sys.exit(3)
+                msg = f"Unexpected response from GitHub API: {data!r}"
+                print(f"ERROR: {msg}", file=sys.stderr)
+                raise RuntimeError(msg)
 
             data_list = cast(list[dict[str, Any]], data)
             if not data_list:
@@ -222,10 +194,9 @@ class x_cls_make_github_clones_x:
             data_local: Any = self._request_json(url_local, headers_local)
 
             if not isinstance(data_local, list):
-                logger.error(
-                    "Unexpected response from GitHub API: %s", data_local
-                )
-                sys.exit(3)
+                msg = f"Unexpected response from GitHub API: {data_local!r}"
+                print(f"ERROR: {msg}")
+                raise RuntimeError(msg)
 
             data_local_list = cast(list[dict[str, Any]], data_local)
             if not data_local_list:
@@ -257,13 +228,13 @@ class x_cls_make_github_clones_x:
             return False
 
     def clone_repo(self, clone_url: str, dest_path: str, shallow: bool) -> int:
+        # Build and run the git clone command. INFO goes to stdout.
         cmd = ["git", "clone"]
         if shallow:
-            cmd += ["--depth", "1"]
-        cmd += [clone_url, dest_path]
-        logger.info("Running: %s", " ".join(cmd))
-        # Run git clone and return the exit code. Keep behavior simple and
-        # consistent with prior implementation; callers interpret 0 as success.
+            cmd.extend(["--depth", "1"])
+        cmd.extend([clone_url, dest_path])
+        print(f"INFO: Running: {' '.join(cmd)}", file=sys.stdout)
+        # Run git clone and return the exit code. Callers interpret 0 as success.
         proc = subprocess.run(cmd, check=False)
         return proc.returncode
 
@@ -295,7 +266,7 @@ class x_cls_make_github_clones_x:
         if not name:
             return "skipped", "", ""
         if self.names and name not in self.names:
-            logger.info("Skipping %s (not in whitelist)", name)
+            print(f"INFO: Skipping {name} (not in whitelist)", file=sys.stdout)
             return "skipped", name, ""
 
         dest = os.path.join(self.target_dir, name)
@@ -303,13 +274,16 @@ class x_cls_make_github_clones_x:
 
         status = "skipped"
         if not os.path.exists(dest):
-            logger.info("Cloning %s into %s", name, dest)
+            print(f"INFO: Cloning {name} into {dest}", file=sys.stdout)
             rc = self.clone_repo(clone_url, dest, self.shallow)
             status = "cloned" if rc == 0 else "failed"
             if status == "failed":
-                logger.error("git clone failed for %s (rc=%s)", name, rc)
+                print(
+                    f"ERROR: git clone failed for {name} (rc={rc})",
+                    file=sys.stderr,
+                )
         else:
-            logger.info("Updating %s in %s", name, dest)
+            print(f"INFO: Updating {name} in {dest}", file=sys.stdout)
             try:
                 result = subprocess.run(
                     ["git", "-C", dest, "pull"],
@@ -324,23 +298,27 @@ class x_cls_make_github_clones_x:
                     # Recloning helper will remove the dest and reclone; keep logic small here.
                     status = self._reclone_cleanup(dest, clone_url)
                 else:
-                    logger.error("git pull failed for %s (rc=%s)", name, rc)
-                    logger.error(result.stderr)
+                    print(
+                        f"ERROR: git pull failed for {name} (rc={rc})",
+                        file=sys.stderr,
+                    )
+                    if result.stderr:
+                        print(f"ERROR: {result.stderr}", file=sys.stderr)
                     status = "failed"
             except Exception as e:
-                logger.exception(
-                    "Exception during git pull for %s: %s", name, e
+                print(
+                    f"ERROR: Exception during git pull for {name}: {e}",
+                    file=sys.stderr,
                 )
                 status = "failed"
 
         return status, name, dest
 
     def _build_clone_url(self, r: dict[str, Any], name: str) -> str:
-        clone_url = r.get("clone_url") or r.get("ssh_url") or ""
-        if self.token and r.get("private"):
-            owner = r.get("owner", {}).get("login", self.username)
-            clone_url = f"https://{self.token}@github.com/{owner}/{name}.git"
-        return clone_url
+        # Avoid embedding token in clone URLs. Prefer SSH if available because
+        # it avoids credentials leakage; otherwise use the API-provided HTTPS URL
+        # and let the user's git credential helper handle authentication.
+        return r.get("ssh_url") or r.get("clone_url") or ""
 
     def _reclone_cleanup(self, dest: str, clone_url: str) -> str:
         """Remove a corrupt repo folder and attempt to reclone. Returns 'cloned' or 'failed'."""
@@ -370,50 +348,45 @@ class x_cls_make_github_clones_x:
                 pass
 
         try:
-            logger.info("%s is not a git repository. Recloning...", dest)
-            # Prefer the newer `onexc` parameter when available; fall back to
-            # `onerror` on older Python versions. Build kwargs dynamically to
-            # avoid passing an unsupported keyword directly.
+            print(f"INFO: {dest} is not a git repository. Recloning...")
+            # Prefer the newer `onexc` parameter when available; otherwise
+            # fall back to a plain rmtree call. This is defensive across
+            # Python versions and avoids deprecated parameters.
             try:
                 import inspect
 
                 sig = inspect.signature(shutil.rmtree)
-                kwargs: dict[str, Any] = {}
                 if "onexc" in sig.parameters:
-                    kwargs["onexc"] = _on_rm_error
+                    try:
+                        shutil.rmtree(dest, onexc=_on_rm_error)
+                    except TypeError:
+                        try:
+                            shutil.rmtree(dest)
+                        except Exception:
+                            pass
                 else:
-                    # Older Pythons expect `onerror`.
-                    kwargs["onerror"] = _on_rm_error
-                try:
-                    shutil.rmtree(dest, **kwargs)
-                except TypeError:
-                    # Some runtimes may reject kwargs; try plain rmtree.
                     try:
                         shutil.rmtree(dest)
                     except Exception:
-                        # Give up gracefully and continue to reclone step.
                         pass
             except Exception:
-                # Best-effort fallback: attempt rmtree with onerror where possible.
                 try:
-                    # Fall back to onerror for very old runtimes. mypy/ruff may
-                    # still warn about deprecated 'onerror'; silence for this
-                    # compatibility branch only.
-                    shutil.rmtree(dest, onerror=_on_rm_error)
+                    shutil.rmtree(dest)
                 except Exception:
-                    try:
-                        shutil.rmtree(dest)
-                    except Exception:
-                        pass
+                    pass
         except Exception as e:
-            logger.error("Failed to remove %s: %s", dest, e)
+            print(f"ERROR: Failed to remove {dest}: {e}", file=sys.stderr)
             return "failed"
         rc2 = self.clone_repo(clone_url, dest, self.shallow)
         if rc2 == 0:
-            logger.info("Reclone successful for %s.", os.path.basename(dest))
+            print(
+                f"INFO: Reclone successful for {os.path.basename(dest)}.",
+                file=sys.stdout,
+            )
             return "cloned"
-        logger.error(
-            "Reclone failed for %s (rc=%s)", os.path.basename(dest), rc2
+        print(
+            f"ERROR: Reclone failed for {os.path.basename(dest)} (rc={rc2})",
+            file=sys.stderr,
         )
         return "failed"
 
@@ -429,142 +402,13 @@ class x_cls_make_github_clones_x:
 
     # pre-commit config generation removed per request; do not write .pre-commit-config.yaml
 
-    def _maybe_write_pyproject(self, name: str, dest: str) -> None:
-        pyproject_path = os.path.join(dest, "pyproject.toml")
-        write_pyproject = True
-        if os.path.exists(pyproject_path):
-            try:
-                with open(pyproject_path, encoding="utf-8") as pf:
-                    existing = pf.read()
-            except Exception:
-                existing = ""
-            if (
-                "[project]" in existing
-                or "name =" in existing
-                or "version =" in existing
-            ):
-                write_pyproject = False
-                logger.info("Existing pyproject.toml in %s; skipping.", name)
-                self._pyproject_conflicts.append(name)
-            elif not self.auto_overwrite_configs:
-                write_pyproject = False
-                logger.info(
-                    "Existing pyproject.toml in %s; not overwriting.", name
-                )
-        if not write_pyproject:
-            return
-        # Compose a minimal pyproject with project metadata followed by tooling fragment
-        pyproject_content = (
-            f"[project]\n"
-            f'name = "{name}"\n'
-            f'version = "0.0.0"\n'
-            f'description = "A repository in the {self.username} workspace. Update as needed."\n'
-            f"authors = [{{name = \"{self.username or 'author'}\"}}]\n\n"
-            + templates.PYPROJECT_FRAGMENT
-        )
-        try:
-            with open(pyproject_path, "w", encoding="utf-8") as f:
-                f.write(pyproject_content)
-        except Exception as e:
-            logger.error("Failed to write pyproject.toml for %s: %s", name, e)
-
-    def _write_ci_yaml(self, dest: str) -> None:
-        ci_yml_path = os.path.join(dest, ".github", "workflows", "ci.yml")
-        try:
-            with open(ci_yml_path, "w", encoding="utf-8") as f:
-                f.write(templates.CI_WINDOWS)
-        except Exception as e:
-            logger.error("Failed to write CI workflow for %s: %s", dest, e)
-
-    def _write_gitignore_and_requirements(self, name: str, dest: str) -> None:
-        gitignore_path = os.path.join(dest, ".gitignore")
-        gitignore_template = (
-            "# Python\n"
-            "__pycache__/\n"
-            "*.pyc\n"
-            "*.pyo\n"
-            "*.pyd\n"
-            "*.so\n"
-            "*.egg\n"
-            "*.egg-info/\n"
-            "dist/\n"
-            "build/\n"
-            ".eggs/\n"
-            "*.manifest\n"
-            "*.spec\n"
-            """
-            No-op: cloner is intentionally bare-bones and must not create project files.
-
-            All project scaffolding (pyproject, CI workflows, etc.) is now
-            the responsibility of the PyPI publisher class which runs in a controlled
-            build directory. This prevents accidental overwrites in existing repos.
-            """
-        )
-        try:
-            with open(gitignore_path, "w", encoding="utf-8") as f:
-                f.write(gitignore_template)
-        except Exception as e:
-            logger.error("Failed to write .gitignore for %s: %s", name, e)
-        requirements_dev_path = os.path.join(dest, "requirements-dev.txt")
-        try:
-            with open(requirements_dev_path, "w", encoding="utf-8") as f:
-                f.write(templates.REQS_DEV)
-        except Exception as e:
-            logger.error(
-                "Failed to write requirements-dev.txt for %s: %s", name, e
-            )
-
-    def _write_bootstrap_scripts(self, dest: str) -> None:
-        bootstrap_ps1 = os.path.join(dest, "bootstrap_dev_tools.ps1")
-        bootstrap_sh = os.path.join(dest, "bootstrap_dev_tools.sh")
-        try:
-            with open(bootstrap_ps1, "w", encoding="utf-8") as f:
-                f.write(templates.BOOTSTRAP_PS1)
-        except Exception:
-            pass
-        try:
-            with open(bootstrap_sh, "w", encoding="utf-8") as f:
-                f.write(templates.BOOTSTRAP_SH)
-        except Exception:
-            pass
-        try:
-            import stat as _stat
-
-            os.chmod(
-                bootstrap_sh, (os.stat(bootstrap_sh).st_mode | _stat.S_IXUSR)
-            )
-        except Exception:
-            pass
-
-    def _write_readme(self, name: str, dest: str) -> None:
-        readme_path = os.path.join(dest, "README.md")
-        try:
-            with open(readme_path, "w", encoding="utf-8") as f:
-                f.write(
-                    f"# {name}\n\nThis repository was bootstrapped by the workspace cloner.\n\n"
-                    "To enable development tooling (ruff/black/mypy):\n\n"
-                    "PowerShell:\n\n"
-                    "```powershell\n"
-                    "./bootstrap_dev_tools.ps1\n"
-                    "```\n\n"
-                    "POSIX shell:\n\n"
-                    "```bash\n"
-                    "./bootstrap_dev_tools.sh\n"
-                    "```\n\n"
-                    "Edit `pyproject.toml` to set a proper `name` and `version` for packaging.\n"
-                )
-        except Exception:
-            logger.exception("Failed to write README for %s", name)
-
-    # pre-commit hook installation removed per request; do not run or install hooks automatically
+    # All file-writing helpers removed. This cloner only clones and updates repos.
 
     def _process_repo(self, r: dict[str, Any]) -> str:
-        status, name, dest = self._clone_or_update_repo(r)
+        status, _, _ = self._clone_or_update_repo(r)
         if status in {"failed", "skipped"}:
             return status
-        # write configs and run hooks
-        self._write_standard_configs(name, dest)
-        self._install_pre_commit_hooks(dest)
+        # Intentionally do not write any files or install hooks.
         return status
 
     def _sync_repos(
@@ -581,19 +425,16 @@ class x_cls_make_github_clones_x:
                 continue
             if self.names and name not in self.names:
                 skipped += 1
-                logger.info("Skipping %s (not in whitelist)", name)
+                print(f"INFO: Skipping {name} (not in whitelist)")
                 continue
 
             repo_status, _, _ = self._clone_or_update_repo(r)
-            dest = os.path.join(self.target_dir, name)
             if repo_status == "cloned":
                 cloned += 1
-                self._write_standard_configs(name, dest)
-                self._install_pre_commit_hooks(dest)
+                # No file-writing or hook installation.
             elif repo_status == "updated":
                 updated += 1
-                self._write_standard_configs(name, dest)
-                self._install_pre_commit_hooks(dest)
+                # No file-writing or hook installation.
             elif repo_status == "skipped":
                 skipped += 1
             else:
@@ -602,16 +443,17 @@ class x_cls_make_github_clones_x:
 
     def run(self) -> str:
         if not self.git_available():
-            logger.error(
-                "git is not available on PATH. Please install Git and retry."
+            print(
+                "ERROR: git is not available on PATH. Please install Git and retry.",
+                file=sys.stderr,
             )
             self.exit_code = 10
             return ""
 
         # Ensure the target directory exists
         os.makedirs(self.target_dir, exist_ok=True)
-        logger.info("Fetching repositories for user: %s", self.username)
-        logger.info("Synchronizing repositories in: %s", self.target_dir)
+        print(f"INFO: Fetching repositories for user: {self.username}")
+        print(f"INFO: Synchronizing repositories in: {self.target_dir}")
 
         # Determine auth username if token provided
         if self.token:
@@ -630,28 +472,14 @@ class x_cls_make_github_clones_x:
                 str(self.username), self.token, self.include_forks
             )
 
-        logger.info("Found %d repositories (after fork filter).", len(repos))
+        print(f"INFO: Found {len(repos)} repositories (after fork filter).")
 
         # Delegate the per-repo work to _sync_repos to reduce complexity.
         cloned, updated, skipped, failed = self._sync_repos(repos)
 
-        logger.info(
-            "Done. cloned=%d updated=%d skipped=%d failed=%d",
-            cloned,
-            updated,
-            skipped,
-            failed,
+        print(
+            f"INFO: Done. cloned={cloned} updated={updated} skipped={skipped} failed={failed}"
         )
-        # Report pyproject.toml collisions (if any)
-        if self._pyproject_conflicts:
-            logger.info(
-                "\npyproject.toml collision report: the following repos were NOT overwritten:"
-            )
-            for repo_name in sorted(set(self._pyproject_conflicts)):
-                logger.info(" - %s", repo_name)
-            logger.info(
-                "To overwrite, set auto_overwrite_configs=True on the cloner."
-            )
         self.exit_code = 0 if failed == 0 else 4
         if failed:
             raise AssertionError(
@@ -660,14 +488,45 @@ class x_cls_make_github_clones_x:
         # Return the target directory so downstream processes can use it.
         return self.target_dir
 
-    def _install_pre_commit_hooks(self, dest: str) -> None:
-        """No-op placeholder: pre-commit installation was removed by refactor.
-
-        Kept as a no-op so older call sites remain safe and type-checkers
-        see a defined attribute.
-        """
-        # Intentionally do nothing.
-        return
-
 
 # Dummy main block for import safety
+
+
+def _cli_main(argv: list[str] | None = None) -> int:
+    """Small CLI wrapper: returns exit code (0 success, non-zero failure)."""
+    import argparse
+
+    argv = argv if argv is not None else None
+    parser = argparse.ArgumentParser(
+        description="Clone GitHub repos for a user"
+    )
+    parser.add_argument("username", help="GitHub username to clone")
+    parser.add_argument("target_dir", help="Local directory to store clones")
+    parser.add_argument(
+        "--shallow", action="store_true", help="Shallow clone (--depth 1)"
+    )
+    parser.add_argument(
+        "--include-forks", action="store_true", help="Include forked repos"
+    )
+    parser.add_argument(
+        "--names", help="Comma-separated whitelist of repo names", default=None
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        cl = x_cls_make_github_clones_x(
+            username=args.username,
+            target_dir=args.target_dir,
+            shallow=bool(args.shallow),
+            include_forks=bool(args.include_forks),
+            names=args.names,
+        )
+        cl.run()
+        return 0
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(_cli_main())
