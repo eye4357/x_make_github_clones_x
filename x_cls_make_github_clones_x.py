@@ -104,7 +104,7 @@ class x_cls_make_github_clones_x(BaseMake):
         self.shallow = shallow
         self.include_forks = include_forks
         self.names = (
-            set([n.strip() for n in names.split(",") if n.strip()])
+            {n.strip() for n in names.split(",") if n.strip()}
             if names
             else None
         )
