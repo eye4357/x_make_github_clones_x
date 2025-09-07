@@ -255,6 +255,29 @@ class x_cls_make_github_clones_x:
         clone_url = self._build_clone_url(r, name)
 
         status = "skipped"
+
+        # Helper to determine whether a path is a (likely) git repository
+        def _is_git_repo(path: str) -> bool:
+            gitdir = os.path.join(path, ".git")
+            if not os.path.isdir(path):
+                return False
+            if not os.path.exists(gitdir):
+                return False
+            # verify with git that it's a work tree
+            try:
+                res = subprocess.run(
+                    ["git", "-C", path, "rev-parse", "--is-inside-work-tree"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                return (
+                    res.returncode == 0
+                    and (res.stdout or "").strip().lower() == "true"
+                )
+            except Exception:
+                return False
+
         if not os.path.exists(dest):
             print(f"INFO: Cloning {name} into {dest}", file=sys.stdout)
             rc = self.clone_repo(clone_url, dest, self.shallow)
@@ -265,8 +288,43 @@ class x_cls_make_github_clones_x:
                     file=sys.stderr,
                 )
         else:
+            # If destination exists but is not a directory or not a git repo, remove and reclone
+            if not os.path.isdir(dest):
+                print(
+                    f"WARN: Destination exists and is not a directory: {dest}; removing and recloning",
+                    file=sys.stderr,
+                )
+                try:
+                    import shutil
+
+                    shutil.rmtree(dest)
+                except Exception as e:
+                    print(
+                        f"ERROR: Failed to remove invalid destination {dest}: {e}",
+                        file=sys.stderr,
+                    )
+                    return "failed", name, dest
+                rc = self.clone_repo(clone_url, dest, self.shallow)
+                status = "cloned" if rc == 0 else "failed"
+                if status == "failed":
+                    print(
+                        f"ERROR: git clone failed for {name} after cleanup (rc={rc})",
+                        file=sys.stderr,
+                    )
+                return status, name, dest
+
+            # If .git metadata missing or repo sanity check fails, reclone
+            if not _is_git_repo(dest):
+                print(
+                    f"INFO: {dest} missing .git or invalid repository; performing reclone cleanup",
+                    file=sys.stdout,
+                )
+                status = self._reclone_cleanup(dest, clone_url)
+                return status, name, dest
+
             print(f"INFO: Updating {name} in {dest}", file=sys.stdout)
             try:
+                # Attempt a normal pull with one retry; if it fails, attempt fetch before recloning.
                 result = subprocess.run(
                     ["git", "-C", dest, "pull"],
                     check=False,
@@ -276,23 +334,54 @@ class x_cls_make_github_clones_x:
                 rc = result.returncode
                 if rc == 0:
                     status = "updated"
-                elif "not a git repository" in (result.stderr or ""):
-                    # Recloning helper will remove the dest and reclone; keep logic small here.
-                    status = self._reclone_cleanup(dest, clone_url)
                 else:
+                    # Try a fetch as a second-line recovery step (may succeed if only network hiccup)
                     print(
-                        f"ERROR: git pull failed for {name} (rc={rc})",
+                        f"WARN: git pull for {name} returned rc={rc}; attempting git fetch as recovery",
                         file=sys.stderr,
                     )
-                    if result.stderr:
-                        print(f"ERROR: {result.stderr}", file=sys.stderr)
-                    status = "failed"
+                    try:
+                        fetch_res = subprocess.run(
+                            ["git", "-C", dest, "fetch", "--all"],
+                            check=False,
+                            capture_output=True,
+                            text=True,
+                        )
+                        if fetch_res.returncode == 0:
+                            # After a successful fetch, try pull again
+                            retry = subprocess.run(
+                                ["git", "-C", dest, "pull"],
+                                check=False,
+                                capture_output=True,
+                                text=True,
+                            )
+                            if retry.returncode == 0:
+                                status = "updated"
+                            else:
+                                print(
+                                    f"WARN: git pull retry failed for {name} (rc={retry.returncode}); will attempt reclone",
+                                    file=sys.stderr,
+                                )
+                                status = self._reclone_cleanup(dest, clone_url)
+                        else:
+                            # fetch failed; repository may be corrupted or remote unreachable
+                            print(
+                                f"ERROR: git fetch failed for {name} (rc={fetch_res.returncode}); stdout={fetch_res.stdout} stderr={fetch_res.stderr}",
+                                file=sys.stderr,
+                            )
+                            status = self._reclone_cleanup(dest, clone_url)
+                    except Exception as e:
+                        print(
+                            f"ERROR: Exception during git fetch/pull recovery for {name}: {e}",
+                            file=sys.stderr,
+                        )
+                        status = self._reclone_cleanup(dest, clone_url)
             except Exception as e:
                 print(
                     f"ERROR: Exception during git pull for {name}: {e}",
                     file=sys.stderr,
                 )
-                status = "failed"
+                status = self._reclone_cleanup(dest, clone_url)
 
         return status, name, dest
 
