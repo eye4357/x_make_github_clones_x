@@ -26,6 +26,18 @@ import time
 from typing import Any, ClassVar, cast
 
 
+# Minimal BaseMake fallback used when x_make_common_x is not present.
+class BaseMake:
+    def get_env(self, name: str, default: str | None = None) -> str | None:
+        return os.environ.get(name, default)
+
+    def get_env_bool(self, name: str, default: bool = False) -> bool:
+        v = os.environ.get(name)
+        if v is None:
+            return default
+        return v.lower() in ("1", "true", "yes")
+
+
 # Logging removed: prints are used directly (INFO->stdout, ERROR->stderr) where needed.
 
 # Templates and file-writing scaffolding removed: this cloner only clones/pulls.
@@ -46,7 +58,7 @@ except Exception:  # pragma: no cover - extremely unlikely on CPython
 DEFAULT_TARGET_DIR = ""
 
 
-class x_cls_make_github_clones_x:
+class x_cls_make_github_clones_x(BaseMake):
     """Clone GitHub repositories for a user.
 
     Tweakable parameters are exposed as class variables so you can subclass or
@@ -61,6 +73,13 @@ class x_cls_make_github_clones_x:
     USER_AGENT = "clone-script"
     PROMPT_FOR_TOKEN_IN_VENV = True
 
+    # Configurable runtime options (can be overridden in subclasses)
+    GIT_BIN: str = "git"
+    TOKEN_ENV_VAR: str = "GITHUB_TOKEN"
+    ALLOW_TOKEN_CLONE_ENV: str = "X_ALLOW_TOKEN_CLONE"
+    RECLONE_ON_CORRUPT: bool = True
+    CLONE_RETRIES: int = 1
+
     # Default whitelist (names to include) - empty by default; main() provides defaults
     DEFAULT_NAMES: ClassVar[list[str]] = []
 
@@ -72,6 +91,9 @@ class x_cls_make_github_clones_x:
         shallow: bool = False,
         include_forks: bool = False,
         names: str | None = None,
+        token_env: str | None = None,
+        allow_token_clone: bool | None = None,
+        force_reclone: bool | None = None,
     ):
         self.username = username or self.DEFAULT_USERNAME
         self.target_dir = (
@@ -87,11 +109,30 @@ class x_cls_make_github_clones_x:
             else None
         )
         # Intentionally minimal: only keep the flags needed for cloning.
-        self.token = os.environ.get("GITHUB_TOKEN")
-        if not self.token or self.token == "NO_TOKEN_PROVIDED":
-            raise RuntimeError(
-                "No GitHub token provided in environment. Set GITHUB_TOKEN in your venv."
-            )
+        # Token and allow_token_clone are provided by BaseMake properties.
+        self.token_env = token_env or self.TOKEN_ENV_VAR
+        # Resolve token from environment if available via BaseMake helper or os.environ
+        try:
+            self.token = self.get_env(self.token_env)
+        except Exception:
+            self.token = os.environ.get(self.token_env)
+        # allow_token_clone: explicit arg overrides environment
+        if allow_token_clone is None:
+            try:
+                self.allow_token_clone = bool(
+                    self.get_env_bool(self.ALLOW_TOKEN_CLONE_ENV)
+                )
+            except Exception:
+                self.allow_token_clone = bool(
+                    os.environ.get(self.ALLOW_TOKEN_CLONE_ENV)
+                    in ("1", "true", "yes")
+                )
+        else:
+            self.allow_token_clone = bool(allow_token_clone)
+        # When True, always remove existing repo and reclone.
+        self.force_reclone = (
+            bool(force_reclone) if force_reclone is not None else False
+        )
         self.auth_username: str | None = None
         # exit code from last run (0 success, non-zero failure)
         self.exit_code = 0
@@ -196,11 +237,11 @@ class x_cls_make_github_clones_x:
 
         return repos_local
 
-    @staticmethod
-    def git_available() -> bool:
+    @classmethod
+    def git_available(cls) -> bool:
         try:
             completed = subprocess.run(
-                ["git", "--version"],
+                [cls.GIT_BIN, "--version"],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -211,7 +252,7 @@ class x_cls_make_github_clones_x:
 
     def clone_repo(self, clone_url: str, dest_path: str, shallow: bool) -> int:
         # Build and run the git clone command. INFO goes to stdout.
-        cmd = ["git", "clone"]
+        cmd = [self.GIT_BIN, "clone"]
         if shallow:
             cmd.extend(["--depth", "1"])
         cmd.extend([clone_url, dest_path])
@@ -266,7 +307,13 @@ class x_cls_make_github_clones_x:
             # verify with git that it's a work tree
             try:
                 res = subprocess.run(
-                    ["git", "-C", path, "rev-parse", "--is-inside-work-tree"],
+                    [
+                        self.GIT_BIN,
+                        "-C",
+                        path,
+                        "rev-parse",
+                        "--is-inside-work-tree",
+                    ],
                     capture_output=True,
                     text=True,
                     check=False,
@@ -288,6 +335,26 @@ class x_cls_make_github_clones_x:
                     file=sys.stderr,
                 )
         else:
+            # If caller has requested force-reclone, remove and reclone unconditionally
+            if getattr(self, "force_reclone", False):
+                print(
+                    f"INFO: force_reclone enabled; removing existing {dest} and recloning",
+                    file=sys.stdout,
+                )
+                try:
+                    import shutil
+
+                    shutil.rmtree(dest)
+                except Exception as e:
+                    print(
+                        f"ERROR: Failed to remove {dest} for force_reclone: {e}",
+                        file=sys.stderr,
+                    )
+                    return "failed", name, dest
+                rc = self.clone_repo(clone_url, dest, self.shallow)
+                status = "cloned" if rc == 0 else "failed"
+                return status, name, dest
+
             # If destination exists but is not a directory or not a git repo, remove and reclone
             if not os.path.isdir(dest):
                 print(
@@ -326,7 +393,7 @@ class x_cls_make_github_clones_x:
             try:
                 # Attempt a normal pull with one retry; if it fails, attempt fetch before recloning.
                 result = subprocess.run(
-                    ["git", "-C", dest, "pull"],
+                    [self.GIT_BIN, "-C", dest, "pull"],
                     check=False,
                     capture_output=True,
                     text=True,
@@ -342,7 +409,7 @@ class x_cls_make_github_clones_x:
                     )
                     try:
                         fetch_res = subprocess.run(
-                            ["git", "-C", dest, "fetch", "--all"],
+                            [self.GIT_BIN, "-C", dest, "fetch", "--all"],
                             check=False,
                             capture_output=True,
                             text=True,
@@ -350,7 +417,7 @@ class x_cls_make_github_clones_x:
                         if fetch_res.returncode == 0:
                             # After a successful fetch, try pull again
                             retry = subprocess.run(
-                                ["git", "-C", dest, "pull"],
+                                [self.GIT_BIN, "-C", dest, "pull"],
                                 check=False,
                                 capture_output=True,
                                 text=True,
