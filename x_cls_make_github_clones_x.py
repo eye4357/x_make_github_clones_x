@@ -18,12 +18,11 @@ only perform dangerous actions when the user explicitly opts in.
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
 import time
-from typing import Any, ClassVar, cast
+from typing import Any, cast
 
 
 # Minimal BaseMake fallback used when x_make_common_x is not present.
@@ -47,11 +46,9 @@ class BaseMake:
 """red rabbit 2025_0902_0944"""
 try:
     # Python 3 builtin
-    from urllib.error import HTTPError
     from urllib.parse import urlencode
-    from urllib.request import Request, urlopen
-except Exception:  # pragma: no cover - extremely unlikely on CPython
-    raise RuntimeError("urllib not available in this Python runtime.")
+except Exception as exc:  # pragma: no cover - extremely unlikely on CPython
+    raise RuntimeError("urllib not available in this Python runtime.") from exc
 
 # Module-level default target directory (script-level variable) - empty by default
 # Concrete default is set in main() as DEFAULT_TARGET_DIR
@@ -78,124 +75,42 @@ class x_cls_make_github_clones_x(BaseMake):
     TOKEN_ENV_VAR: str = "GITHUB_TOKEN"
     ALLOW_TOKEN_CLONE_ENV: str = "X_ALLOW_TOKEN_CLONE"
     RECLONE_ON_CORRUPT: bool = True
-    CLONE_RETRIES: int = 1
 
+    CLONE_RETRIES: int = 1
     # Default whitelist (names to include) - empty by default; main() provides defaults
-    DEFAULT_NAMES: ClassVar[list[str]] = []
+    NAMES: list[str] | None = None
 
     def __init__(
         self,
         username: str | None = None,
         target_dir: str | None = None,
-        *,
         shallow: bool = False,
         include_forks: bool = False,
-        names: str | None = None,
-        token_env: str | None = None,
-        allow_token_clone: bool | None = None,
-        force_reclone: bool | None = None,
-    ):
+        force_reclone: bool = False,
+        names: list[str] | str | None = None,
+        token: str | None = None,
+    ) -> None:
+        # Instance configuration; prefer explicit args, then class defaults
         self.username = username or self.DEFAULT_USERNAME
-        self.target_dir = (
-            os.path.abspath(target_dir)
-            if target_dir
-            else os.path.abspath(self.DEFAULT_TARGET_DIR)
-        )
+        self.target_dir = target_dir or self.DEFAULT_TARGET_DIR or ""
         self.shallow = shallow
         self.include_forks = include_forks
-        self.names = (
-            {n.strip() for n in names.split(",") if n.strip()}
-            if names
-            else None
-        )
-        # Intentionally minimal: only keep the flags needed for cloning.
-        # Token and allow_token_clone are provided by BaseMake properties.
-        self.token_env = token_env or self.TOKEN_ENV_VAR
-        # Resolve token from environment if available via BaseMake helper or os.environ
-        try:
-            self.token = self.get_env(self.token_env)
-        except Exception:
-            self.token = os.environ.get(self.token_env)
-        # allow_token_clone: explicit arg overrides environment
-        if allow_token_clone is None:
-            try:
-                self.allow_token_clone = bool(
-                    self.get_env_bool(self.ALLOW_TOKEN_CLONE_ENV)
-                )
-            except Exception:
-                self.allow_token_clone = bool(
-                    os.environ.get(self.ALLOW_TOKEN_CLONE_ENV)
-                    in ("1", "true", "yes")
-                )
+        self.force_reclone = force_reclone
+        # names can be provided as comma-separated string from CLI
+        # Ensure `self.names` is declared with a union type so assignments
+        # from different branches are compatible with static analysis.
+        self.names: list[str] | None = None
+        if isinstance(names, str):
+            parsed = [n.strip() for n in names.split(",") if n.strip()]
+            self.names = parsed
         else:
-            self.allow_token_clone = bool(allow_token_clone)
-        # When True, always remove existing repo and reclone.
-        self.force_reclone = (
-            bool(force_reclone) if force_reclone is not None else False
-        )
+            self.names = names if names is not None else self.NAMES
+        # Token may be provided explicitly or sourced from env
+        self.token = token or os.environ.get(self.TOKEN_ENV_VAR)
+        # placeholder for auth username discovered via token
         self.auth_username: str | None = None
-        # exit code from last run (0 success, non-zero failure)
-        self.exit_code = 0
-
-    # No file-writing; no pyproject conflict tracking.
-
-    def _request_json(self, url: str, headers: dict[str, str]) -> Any:
-        req = Request(url, headers=headers)
-        try:
-            with urlopen(req) as resp:
-                return json.load(resp)
-        except HTTPError as e:
-            body = None
-            try:
-                # Some HTTPError objects expose a .read() for body bytes
-                body = e.read().decode("utf-8")
-            except Exception:
-                pass
-            msg = f"GitHub API error: {getattr(e, 'code', '?')} {getattr(e, 'reason', '?')}"
-            if body:
-                msg = msg + f" - {body}"
-            print(f"ERROR: {msg}", file=sys.stderr)
-            raise RuntimeError(msg)
-
-    def fetch_repos(
-        self, username: str, token: str | None, include_forks: bool
-    ) -> list[dict[str, Any]]:
-        repos: list[dict[str, Any]] = []
-        per_page = self.PER_PAGE
-        page = 1
-        headers = {
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": self.USER_AGENT,
-        }
-        if token:
-            headers["Authorization"] = f"token {token}"
-
-        while True:
-            params = urlencode({"per_page": per_page, "page": page})
-            url = f"https://api.github.com/users/{username}/repos?{params}"
-            data: Any = self._request_json(url, headers)
-
-            if not isinstance(data, list):
-                msg = f"Unexpected response from GitHub API: {data!r}"
-                print(f"ERROR: {msg}", file=sys.stderr)
-                raise RuntimeError(msg)
-
-            data_list = cast(list[dict[str, Any]], data)
-            if not data_list:
-                break
-
-            for r in data_list:
-                # r is a dynamic mapping from the GitHub API; it should be a dict
-                if not include_forks and r.get("fork"):
-                    continue
-                repos.append(r)
-
-            if len(data_list) < per_page:
-                break
-            page += 1
-            time.sleep(0.1)
-
-        return repos
+        # exit code placeholder
+        self.exit_code: int | None = None
 
     def fetch_authenticated_repos(
         self, token: str, include_forks: bool
@@ -262,7 +177,7 @@ class x_cls_make_github_clones_x(BaseMake):
         return proc.returncode
 
     def determine_auth_username(self) -> str | None:
-        if not self.token:
+        if not getattr(self, "token", None):
             return None
         try:
             req_headers = {
@@ -285,46 +200,17 @@ class x_cls_make_github_clones_x(BaseMake):
 
         status is one of 'cloned', 'updated', 'failed', 'skipped'.
         """
-        name = r.get("name")
-        if not name:
-            return "skipped", "", ""
-        if self.names and name not in self.names:
-            print(f"INFO: Skipping {name} (not in whitelist)", file=sys.stdout)
-            return "skipped", name, ""
+        name = cast(str | None, r.get("name"))
+        early = self._validate_clone_candidate(name)
+        if early is not None:
+            return early
 
-        dest = os.path.join(self.target_dir, name)
+        # At this point name is expected to be a str per _validate_clone_candidate
+        assert isinstance(name, str)
+        dest = os.path.join(str(self.target_dir), name)
         clone_url = self._build_clone_url(r, name)
 
-        status = "skipped"
-
-        # Helper to determine whether a path is a (likely) git repository
-        def _is_git_repo(path: str) -> bool:
-            gitdir = os.path.join(path, ".git")
-            if not os.path.isdir(path):
-                return False
-            if not os.path.exists(gitdir):
-                return False
-            # verify with git that it's a work tree
-            try:
-                res = subprocess.run(
-                    [
-                        self.GIT_BIN,
-                        "-C",
-                        path,
-                        "rev-parse",
-                        "--is-inside-work-tree",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                return (
-                    res.returncode == 0
-                    and (res.stdout or "").strip().lower() == "true"
-                )
-            except Exception:
-                return False
-
+        # If dest doesn't exist, clone; otherwise let _handle_existing decide.
         if not os.path.exists(dest):
             print(f"INFO: Cloning {name} into {dest}", file=sys.stdout)
             rc = self.clone_repo(clone_url, dest, self.shallow)
@@ -334,123 +220,78 @@ class x_cls_make_github_clones_x(BaseMake):
                     f"ERROR: git clone failed for {name} (rc={rc})",
                     file=sys.stderr,
                 )
-        else:
-            # If caller has requested force-reclone, remove and reclone unconditionally
-            if getattr(self, "force_reclone", False):
-                print(
-                    f"INFO: force_reclone enabled; removing existing {dest} and recloning",
-                    file=sys.stdout,
-                )
-                try:
-                    import shutil
+            else:
+                status = self._handle_existing(dest, clone_url, name)
 
-                    shutil.rmtree(dest)
-                except Exception as e:
-                    print(
-                        f"ERROR: Failed to remove {dest} for force_reclone: {e}",
-                        file=sys.stderr,
-                    )
-                    return "failed", name, dest
-                rc = self.clone_repo(clone_url, dest, self.shallow)
-                status = "cloned" if rc == 0 else "failed"
-                return status, name, dest
+            return status, name, dest
+        # If destination already exists, defer to handler which attempts update
+        # and returns a status string.
+        status = self._handle_existing(dest, clone_url, name)
+        return status, name, dest
 
-            # If destination exists but is not a directory or not a git repo, remove and reclone
-            if not os.path.isdir(dest):
-                print(
-                    f"WARN: Destination exists and is not a directory: {dest}; removing and recloning",
-                    file=sys.stderr,
-                )
-                try:
-                    import shutil
+    def _attempt_update(self, dest: str, clone_url: str, name: str) -> str:
+        """Attempt to update an existing repo at dest and return new status.
 
-                    shutil.rmtree(dest)
-                except Exception as e:
-                    print(
-                        f"ERROR: Failed to remove invalid destination {dest}: {e}",
-                        file=sys.stderr,
-                    )
-                    return "failed", name, dest
-                rc = self.clone_repo(clone_url, dest, self.shallow)
-                status = "cloned" if rc == 0 else "failed"
-                if status == "failed":
-                    print(
-                        f"ERROR: git clone failed for {name} after cleanup (rc={rc})",
-                        file=sys.stderr,
-                    )
-                return status, name, dest
+        This helper consolidates the pull/fetch/reclone recovery flow so the
+        public `_clone_or_update_repo` method remains small.
+        """
+        try:
+            # Attempt a normal pull with one retry; if it fails, attempt fetch before recloning.
+            result = subprocess.run(
+                [self.GIT_BIN, "-C", dest, "pull"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            rc = result.returncode
+            if rc == 0:
+                return "updated"
 
-            # If .git metadata missing or repo sanity check fails, reclone
-            if not _is_git_repo(dest):
-                print(
-                    f"INFO: {dest} missing .git or invalid repository; performing reclone cleanup",
-                    file=sys.stdout,
-                )
-                status = self._reclone_cleanup(dest, clone_url)
-                return status, name, dest
-
-            print(f"INFO: Updating {name} in {dest}", file=sys.stdout)
+            # Try a fetch as a second-line recovery step (may succeed if only network hiccup)
+            print(
+                f"WARN: git pull for {name} returned rc={rc}; attempting git fetch as recovery",
+                file=sys.stderr,
+            )
             try:
-                # Attempt a normal pull with one retry; if it fails, attempt fetch before recloning.
-                result = subprocess.run(
-                    [self.GIT_BIN, "-C", dest, "pull"],
+                fetch_res = subprocess.run(
+                    [self.GIT_BIN, "-C", dest, "fetch", "--all"],
                     check=False,
                     capture_output=True,
                     text=True,
                 )
-                rc = result.returncode
-                if rc == 0:
-                    status = "updated"
-                else:
-                    # Try a fetch as a second-line recovery step (may succeed if only network hiccup)
+                if fetch_res.returncode == 0:
+                    # After a successful fetch, try pull again
+                    retry = subprocess.run(
+                        [self.GIT_BIN, "-C", dest, "pull"],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    if retry.returncode == 0:
+                        return "updated"
                     print(
-                        f"WARN: git pull for {name} returned rc={rc}; attempting git fetch as recovery",
+                        f"WARN: git pull retry failed for {name} (rc={retry.returncode}); will attempt reclone",
                         file=sys.stderr,
                     )
-                    try:
-                        fetch_res = subprocess.run(
-                            [self.GIT_BIN, "-C", dest, "fetch", "--all"],
-                            check=False,
-                            capture_output=True,
-                            text=True,
-                        )
-                        if fetch_res.returncode == 0:
-                            # After a successful fetch, try pull again
-                            retry = subprocess.run(
-                                [self.GIT_BIN, "-C", dest, "pull"],
-                                check=False,
-                                capture_output=True,
-                                text=True,
-                            )
-                            if retry.returncode == 0:
-                                status = "updated"
-                            else:
-                                print(
-                                    f"WARN: git pull retry failed for {name} (rc={retry.returncode}); will attempt reclone",
-                                    file=sys.stderr,
-                                )
-                                status = self._reclone_cleanup(dest, clone_url)
-                        else:
-                            # fetch failed; repository may be corrupted or remote unreachable
-                            print(
-                                f"ERROR: git fetch failed for {name} (rc={fetch_res.returncode}); stdout={fetch_res.stdout} stderr={fetch_res.stderr}",
-                                file=sys.stderr,
-                            )
-                            status = self._reclone_cleanup(dest, clone_url)
-                    except Exception as e:
-                        print(
-                            f"ERROR: Exception during git fetch/pull recovery for {name}: {e}",
-                            file=sys.stderr,
-                        )
-                        status = self._reclone_cleanup(dest, clone_url)
-            except Exception as e:
+                    return self._reclone_cleanup(dest, clone_url)
+                # fetch failed; repository may be corrupted or remote unreachable
                 print(
-                    f"ERROR: Exception during git pull for {name}: {e}",
+                    f"ERROR: git fetch failed for {name} (rc={fetch_res.returncode}); stdout={fetch_res.stdout} stderr={fetch_res.stderr}",
                     file=sys.stderr,
                 )
-                status = self._reclone_cleanup(dest, clone_url)
-
-        return status, name, dest
+                return self._reclone_cleanup(dest, clone_url)
+            except Exception as e:
+                print(
+                    f"ERROR: Exception during git fetch/pull recovery for {name}: {e}",
+                    file=sys.stderr,
+                )
+                return self._reclone_cleanup(dest, clone_url)
+        except Exception as e:
+            print(
+                f"ERROR: Exception during git pull for {name}: {e}",
+                file=sys.stderr,
+            )
+            return self._reclone_cleanup(dest, clone_url)
 
     def _build_clone_url(self, r: dict[str, Any], name: str) -> str:
         # Avoid embedding token in clone URLs. Prefer SSH if available because
@@ -527,6 +368,146 @@ class x_cls_make_github_clones_x(BaseMake):
             file=sys.stderr,
         )
         return "failed"
+
+    def _request_json(
+        self, url: str, headers: dict[str, str] | None = None
+    ) -> Any:
+        """Simple JSON fetch helper used by both authenticated and public fetchers."""
+        try:
+            import json
+            import urllib.request
+
+            req = urllib.request.Request(url)
+            if headers:
+                for k, v in headers.items():
+                    req.add_header(k, v)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.load(resp)
+        except Exception:
+            return {}
+
+    def fetch_repos(
+        self, username: str, token: str | None, include_forks: bool
+    ) -> list[dict[str, Any]]:
+        """Fetch public repos for a user (non-authenticated). Returns list of repo dicts."""
+        repos_local: list[dict[str, Any]] = []
+        per_page_local = self.PER_PAGE
+        page_local = 1
+        headers_local = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": self.USER_AGENT,
+        }
+        if token:
+            headers_local["Authorization"] = f"token {token}"
+
+        while True:
+            params_local = urlencode(
+                {"per_page": per_page_local, "page": page_local}
+            )
+            url_local = (
+                f"https://api.github.com/users/{username}/repos?{params_local}"
+            )
+            data_local: Any = self._request_json(url_local, headers_local)
+            if not isinstance(data_local, list):
+                break
+            data_local_list = cast(list[dict[str, Any]], data_local)
+            if not data_local_list:
+                break
+            for r in data_local_list:
+                if not include_forks and r.get("fork"):
+                    continue
+                repos_local.append(r)
+            if len(data_local_list) < per_page_local:
+                break
+            page_local += 1
+            time.sleep(0.1)
+        return repos_local
+
+    def _validate_clone_candidate(
+        self, name: Any
+    ) -> tuple[str, str, str] | None:
+        """Validate a repo name before cloning; return a skip tuple or None to continue."""
+        if not name or not isinstance(name, str):
+            return ("skipped", "", "")
+        # Simple whitelist check
+        if self.names and name not in self.names:
+            return ("skipped", name, os.path.join(self.target_dir, name))
+        return None
+
+    def _do_clone(self, name: str, dest: str, clone_url: str) -> str:
+        """Perform a git clone and return status 'cloned' or 'failed'."""
+        rc = self.clone_repo(clone_url, dest, self.shallow)
+        status = "cloned" if rc == 0 else "failed"
+        if status == "failed":
+            print(
+                f"ERROR: git clone failed for {name} (rc={rc})",
+                file=sys.stderr,
+            )
+        return status
+
+    def _handle_existing(self, dest: str, clone_url: str, name: str) -> str:
+        """Handle path-existing cases: force_reclone, non-dir, missing git, or update.
+
+        Returns a status string: 'cloned', 'failed', 'updated', or 'skipped'.
+        """
+        # force_reclone
+        if getattr(self, "force_reclone", False):
+            print(
+                f"INFO: force_reclone enabled; removing existing {dest} and recloning",
+                file=sys.stdout,
+            )
+            try:
+                import shutil
+
+                shutil.rmtree(dest)
+            except Exception as e:
+                print(
+                    f"ERROR: Failed to remove {dest} for force_reclone: {e}",
+                    file=sys.stderr,
+                )
+                return "failed"
+            status = self._do_clone(name, dest, clone_url)
+            return status
+
+        # destination exists but is not a dir
+        if not os.path.isdir(dest):
+            print(
+                f"WARN: Destination exists and is not a directory: {dest}; removing and recloning",
+                file=sys.stderr,
+            )
+            try:
+                import shutil
+
+                shutil.rmtree(dest)
+            except Exception as e:
+                print(
+                    f"ERROR: Failed to remove invalid destination {dest}: {e}",
+                    file=sys.stderr,
+                )
+                return "failed"
+            status = self._do_clone(name, dest, clone_url)
+            if status == "failed":
+                print(
+                    f"ERROR: git clone failed for {name} after cleanup (rc?)",
+                    file=sys.stderr,
+                )
+            return status
+
+        # missing .git or invalid repo
+        if not (
+            os.path.join(dest, ".git")
+            and os.path.exists(os.path.join(dest, ".git"))
+        ):
+            print(
+                f"INFO: {dest} missing .git or invalid repository; performing reclone cleanup",
+                file=sys.stdout,
+            )
+            status = self._reclone_cleanup(dest, clone_url)
+            return status
+
+        # otherwise attempt update
+        status = self._attempt_update(dest, clone_url, name)
+        return status
 
     def _write_standard_configs(self, name: str, dest: str) -> None:
         """No-op: cloner is intentionally bare-bones and must not create project files.
