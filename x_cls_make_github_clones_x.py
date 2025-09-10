@@ -62,8 +62,12 @@ class BaseMake:
     def run_cmd(
         self, args: Iterable[str], **kwargs: Any
     ) -> subprocess.CompletedProcess[str]:
+        # Ensure we don't pass duplicate 'check' keyword to subprocess.run
+        # (callers may pass check in kwargs). Pop any provided value and
+        # supply it explicitly.
+        check = kwargs.pop("check", False)
         return subprocess.run(
-            list(args), check=False, capture_output=True, text=True, **kwargs
+            list(args), check=check, capture_output=True, text=True, **kwargs
         )
 
     def get_token(self) -> str | None:
@@ -240,77 +244,228 @@ class x_cls_make_github_clones_x(BaseMake):
 
     def _attempt_update(self, repo_dir: str, git_url: str) -> bool:
         try:
+            # If force_reclone is requested, perform an in-place force refresh
+            # via git operations to avoid deleting files on Windows.
+            if self.force_reclone:
+                _info(f"force_reclone enabled; refreshing in-place {repo_dir}")
+                return self._force_refresh_repo(repo_dir, git_url)
+
             # Attempt in-place update first to preserve uncommitted changes.
             ok = self._clone_or_update_repo(repo_dir, git_url)
             if ok:
                 return True
 
-            # If update failed, attempt a safe reclone/repair flow. This is
-            # enabled by default and will back up the repo before recloning.
-            try:
-                _info(f"Attempting safe reclone for {repo_dir}")
-                if self._safe_reclone(repo_dir, git_url):
-                    # After successful reclone, ensure clone succeeded
-                    return True
-            except Exception as e:
-                _error(f"safe reclone failed for {repo_dir}: {e}")
+            # Fallback: clone-to-temp and atomic swap. Fail fast if this fails.
+            if self._clone_to_temp_swap(repo_dir, git_url):
+                return True
 
             return False
         except Exception as exc:
             _error("exception while updating:", exc)
             return False
 
-    def _safe_reclone(self, repo_dir: str, git_url: str) -> bool:
-        """Safely reclone a repository by backing up the existing directory,
-        attempting a fresh clone, and restoring the backup if the clone fails.
+    def _force_refresh_repo(self, repo_dir: str, git_url: str) -> bool:
+        """Refresh an existing repo in-place without deleting files.
 
-        Returns True on success, False on failure. This avoids irreversibly
-        deleting local uncommitted changes.
+        Strategy:
+        - If the repo is missing, clone it.
+        - Otherwise: fetch refs, stash uncommitted changes (if any), attempt
+          pull --rebase --autostash (preferred). If pull fails, fall back to
+          reset --hard origin/HEAD and clean -fdx. Finally, pop stash if used.
+
+        This avoids removing .git objects and reduces permission errors on Windows.
         """
-        bak_dir = f"{repo_dir}.bak.{int(time.time())}"
-        try:
-            # Move the existing repo to a backup location.
-            shutil.move(repo_dir, bak_dir)
-        except Exception as e:
-            _error(f"failed to move repo for backup: {e}")
-            return False
+        # If missing, just clone
+        if not os.path.exists(repo_dir):
+            return self._clone_or_update_repo(repo_dir, git_url)
 
         try:
-            # Attempt clone into original location
-            args = [self.GIT_BIN, "clone", git_url, repo_dir]
-            if self.shallow:
-                args[2:2] = ["--depth", "1"]
-            for _ in range(max(1, self.CLONE_RETRIES)):
-                proc = self.run_cmd(args)
-                if proc.returncode == 0:
-                    # clone succeeded; remove backup
+            # Fetch first
+            self.run_cmd(
+                [self.GIT_BIN, "-C", repo_dir, "fetch", "--all", "--prune"]
+            )
+
+            status = self.run_cmd(
+                [self.GIT_BIN, "-C", repo_dir, "status", "--porcelain"],
+                check=False,
+            )
+            has_uncommitted = (
+                bool(status.stdout.strip())
+                if status and hasattr(status, "stdout")
+                else False
+            )
+
+            stashed = False
+            if has_uncommitted:
+                stash = self.run_cmd(
+                    [
+                        self.GIT_BIN,
+                        "-C",
+                        repo_dir,
+                        "stash",
+                        "push",
+                        "-u",
+                        "-m",
+                        "force-refresh-stash",
+                    ]
+                )
+                stashed = stash.returncode == 0
+
+            # Try a pull that prefers rebase and autostash (safer)
+            if not self.shallow:
+                pull = self.run_cmd(
+                    [
+                        self.GIT_BIN,
+                        "-C",
+                        repo_dir,
+                        "pull",
+                        "--rebase",
+                        "--autostash",
+                    ]
+                )
+            else:
+                pull = self.run_cmd([self.GIT_BIN, "-C", repo_dir, "pull"])
+
+            ok = False
+            if pull.returncode == 0:
+                ok = True
+            else:
+                # Fallback: attempt a hard reset to remote and clean untracked files
+                self.run_cmd(
+                    [self.GIT_BIN, "-C", repo_dir, "fetch", "--all", "--prune"]
+                )
+                reset = self.run_cmd(
+                    [
+                        self.GIT_BIN,
+                        "-C",
+                        repo_dir,
+                        "reset",
+                        "--hard",
+                        "origin/HEAD",
+                    ]
+                )
+                self.run_cmd([self.GIT_BIN, "-C", repo_dir, "clean", "-fdx"])
+                if reset.returncode == 0:
+                    ok = True
+                else:
+                    _error(
+                        "force refresh reset failed:",
+                        reset.stderr or reset.stdout,
+                    )
+
+            # Restore stashed changes if any
+            if stashed:
+                pop = self.run_cmd(
+                    [self.GIT_BIN, "-C", repo_dir, "stash", "pop"]
+                )
+                if pop.returncode != 0:
+                    _error("stash pop failed:", pop.stderr or pop.stdout)
+
+            return ok
+        except Exception as e:
+            _error("force refresh exception:", e)
+            return False
+
+    def _clone_to_temp_swap(self, repo_dir: str, git_url: str) -> bool:
+        """Clone into a temporary directory and atomically swap with the
+        existing repo dir. Returns True on success, False on failure.
+
+        Steps:
+        - clone into tmp dir alongside the target (same parent)
+        - if clone succeeds, move existing repo to a backup name
+        - rename tmp -> repo_dir
+        - attempt to remove backup (best-effort)
+        - on any failure attempt to restore original state and return False
+        """
+        parent = os.path.dirname(repo_dir)
+        base = os.path.basename(repo_dir)
+        ts = int(time.time())
+        tmp_dir = os.path.join(parent, f".{base}.tmp.{ts}")
+        bak_dir = os.path.join(parent, f".{base}.bak.{ts}")
+
+        # Ensure parent exists
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except Exception:
+            return False
+
+        # Attempt clone into tmp_dir
+        args = [self.GIT_BIN, "clone", git_url, tmp_dir]
+        if self.shallow:
+            args[2:2] = ["--depth", "1"]
+        for _ in range(max(1, self.CLONE_RETRIES)):
+            proc = self.run_cmd(args)
+            if proc.returncode == 0:
+                break
+            # clone failed; retry per CLONE_RETRIES
+            try:
+                if os.path.exists(tmp_dir):
+                    shutil.rmtree(tmp_dir)
+            except Exception:
+                pass
+        else:
+            # All clone attempts failed
+            try:
+                if os.path.exists(tmp_dir):
+                    shutil.rmtree(tmp_dir)
+            except Exception:
+                pass
+            return False
+
+        # At this point tmp_dir exists and contains a fresh clone. Swap it in.
+        try:
+            if os.path.exists(repo_dir):
+                # Move current repo to backup
+                try:
+                    shutil.move(repo_dir, bak_dir)
+                except Exception:
+                    # If move fails, clean tmp and fail
                     try:
-                        shutil.rmtree(bak_dir)
+                        shutil.rmtree(tmp_dir)
                     except Exception:
-                        _info(f"left backup at {bak_dir}")
-                    return True
-                _error("reclone attempt failed:", proc.stderr or proc.stdout)
+                        pass
+                    return False
 
-            # All clone attempts failed; restore backup
+            # Rename tmp -> repo_dir
             try:
-                if os.path.exists(repo_dir):
-                    shutil.rmtree(repo_dir)
+                shutil.move(tmp_dir, repo_dir)
+            except Exception:
+                # try to restore from backup
+                try:
+                    if os.path.exists(bak_dir) and not os.path.exists(
+                        repo_dir
+                    ):
+                        shutil.move(bak_dir, repo_dir)
+                except Exception:
+                    pass
+                try:
+                    if os.path.exists(tmp_dir):
+                        shutil.rmtree(tmp_dir)
+                except Exception:
+                    pass
+                return False
+
+            # Success: attempt to remove backup (best-effort)
+            try:
+                if os.path.exists(bak_dir):
+                    shutil.rmtree(bak_dir)
+            except Exception:
+                # ignore cleanup failures; leave backup for manual inspection
+                pass
+
+            return True
+        except Exception:
+            # Unexpected failure: try to clean tmp and restore backup
+            try:
+                if os.path.exists(tmp_dir):
+                    shutil.rmtree(tmp_dir)
             except Exception:
                 pass
-            shutil.move(bak_dir, repo_dir)
-            return False
-        except Exception as e:
-            _error(f"error during reclone: {e}")
-            # try to restore backup
             try:
-                if os.path.exists(repo_dir):
-                    shutil.rmtree(repo_dir)
+                if os.path.exists(bak_dir) and not os.path.exists(repo_dir):
+                    shutil.move(bak_dir, repo_dir)
             except Exception:
                 pass
-            try:
-                shutil.move(bak_dir, repo_dir)
-            except Exception as e2:
-                _error(f"failed to restore backup after reclone failure: {e2}")
             return False
 
     def _repo_clone_url(self, repo: dict[str, Any]) -> str:
