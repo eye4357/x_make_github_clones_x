@@ -23,18 +23,7 @@ import subprocess
 import sys
 import time
 from typing import Any, cast
-
-
-# Minimal BaseMake fallback used when x_make_common_x is not present.
-class BaseMake:
-    def get_env(self, name: str, default: str | None = None) -> str | None:
-        return os.environ.get(name, default)
-
-    def get_env_bool(self, name: str, default: bool = False) -> bool:
-        v = os.environ.get(name)
-        if v is None:
-            return default
-        return v.lower() in ("1", "true", "yes")
+from x_make_common_x.x_cls_make_common_x import BaseMake
 
 
 # Logging removed: prints are used directly (INFO->stdout, ERROR->stderr) where needed.
@@ -117,7 +106,9 @@ class x_cls_make_github_clones_x(BaseMake):
         if ctx is not None:
             try:
                 # Mirror test expectation
-                print("[github_clones] initialized")
+                from x_make_common_x.helpers import info as _info
+
+                _info("[github_clones] initialized")
             except Exception:
                 pass
 
@@ -142,7 +133,9 @@ class x_cls_make_github_clones_x(BaseMake):
 
             if not isinstance(data_local, list):
                 msg = f"Unexpected response from GitHub API: {data_local!r}"
-                print(f"ERROR: {msg}")
+                from x_make_common_x.helpers import error as _error
+
+                _error(msg)
                 raise RuntimeError(msg)
 
             data_local_list = cast(list[dict[str, Any]], data_local)
@@ -180,7 +173,9 @@ class x_cls_make_github_clones_x(BaseMake):
         if shallow:
             cmd.extend(["--depth", "1"])
         cmd.extend([clone_url, dest_path])
-        print(f"INFO: Running: {' '.join(cmd)}", file=sys.stdout)
+        from x_make_common_x.helpers import info as _info
+
+        _info(f"INFO: Running: {' '.join(cmd)}")
         # Run git clone and return the exit code. Callers interpret 0 as success.
         proc = subprocess.run(cmd, check=False)
         return proc.returncode
@@ -221,14 +216,15 @@ class x_cls_make_github_clones_x(BaseMake):
 
         # If dest doesn't exist, clone; otherwise let _handle_existing decide.
         if not os.path.exists(dest):
-            print(f"INFO: Cloning {name} into {dest}", file=sys.stdout)
+            from x_make_common_x.helpers import info as _info
+
+            _info(f"Cloning {name} into {dest}")
             rc = self.clone_repo(clone_url, dest, self.shallow)
             status = "cloned" if rc == 0 else "failed"
             if status == "failed":
-                print(
-                    f"ERROR: git clone failed for {name} (rc={rc})",
-                    file=sys.stderr,
-                )
+                from x_make_common_x.helpers import error as _error
+
+                _error(f"git clone failed for {name} (rc={rc})")
             else:
                 status = self._handle_existing(dest, clone_url, name)
 
@@ -257,10 +253,9 @@ class x_cls_make_github_clones_x(BaseMake):
                 return "updated"
 
             # Try a fetch as a second-line recovery step (may succeed if only network hiccup)
-            print(
-                f"WARN: git pull for {name} returned rc={rc}; attempting git fetch as recovery",
-                file=sys.stderr,
-            )
+            from x_make_common_x.helpers import info as _info
+
+            _info(f"git pull for {name} returned rc={rc}; attempting git fetch as recovery")
             try:
                 fetch_res = subprocess.run(
                     [self.GIT_BIN, "-C", dest, "fetch", "--all"],
@@ -278,28 +273,29 @@ class x_cls_make_github_clones_x(BaseMake):
                     )
                     if retry.returncode == 0:
                         return "updated"
-                    print(
-                        f"WARN: git pull retry failed for {name} (rc={retry.returncode}); will attempt reclone",
-                        file=sys.stderr,
+                    from x_make_common_x.helpers import info as _info
+
+                    _info(
+                        f"git pull retry failed for {name} (rc={retry.returncode}); will attempt reclone"
                     )
                     return self._reclone_cleanup(dest, clone_url)
                 # fetch failed; repository may be corrupted or remote unreachable
-                print(
-                    f"ERROR: git fetch failed for {name} (rc={fetch_res.returncode}); stdout={fetch_res.stdout} stderr={fetch_res.stderr}",
-                    file=sys.stderr,
+                from x_make_common_x.helpers import error as _error
+
+                _error(
+                    f"git fetch failed for {name} (rc={fetch_res.returncode}); stdout={fetch_res.stdout} stderr={fetch_res.stderr}"
                 )
                 return self._reclone_cleanup(dest, clone_url)
             except Exception as e:
-                print(
-                    f"ERROR: Exception during git fetch/pull recovery for {name}: {e}",
-                    file=sys.stderr,
-                )
+                from x_make_common_x.helpers import error as _error
+
+                _error(f"Exception during git fetch/pull recovery for {name}: {e}")
+                
                 return self._reclone_cleanup(dest, clone_url)
         except Exception as e:
-            print(
-                f"ERROR: Exception during git pull for {name}: {e}",
-                file=sys.stderr,
-            )
+            from x_make_common_x.helpers import error as _error
+
+            _error(f"Exception during git pull for {name}: {e}")
             return self._reclone_cleanup(dest, clone_url)
 
     def _build_clone_url(self, r: dict[str, Any], name: str) -> str:
@@ -336,7 +332,9 @@ class x_cls_make_github_clones_x(BaseMake):
                 pass
 
         try:
-            print(f"INFO: {dest} is not a git repository. Recloning...")
+            from x_make_common_x.helpers import info as _info
+
+            _info(f"{dest} is not a git repository. Recloning...")
             # Prefer the newer `onexc` parameter when available; otherwise
             # fall back to a plain rmtree call. This is defensive across
             # Python versions and avoids deprecated parameters.
@@ -363,19 +361,19 @@ class x_cls_make_github_clones_x(BaseMake):
                 except Exception:
                     pass
         except Exception as e:
-            print(f"ERROR: Failed to remove {dest}: {e}", file=sys.stderr)
+            from x_make_common_x.helpers import error as _error
+
+            _error(f"Failed to remove {dest}: {e}")
             return "failed"
         rc2 = self.clone_repo(clone_url, dest, self.shallow)
         if rc2 == 0:
-            print(
-                f"INFO: Reclone successful for {os.path.basename(dest)}.",
-                file=sys.stdout,
-            )
+            from x_make_common_x.helpers import info as _info
+
+            _info(f"Reclone successful for {os.path.basename(dest)}.")
             return "cloned"
-        print(
-            f"ERROR: Reclone failed for {os.path.basename(dest)} (rc={rc2})",
-            file=sys.stderr,
-        )
+        from x_make_common_x.helpers import error as _error
+
+        _error(f"Reclone failed for {os.path.basename(dest)} (rc={rc2})")
         return "failed"
 
     def _request_json(
@@ -448,10 +446,9 @@ class x_cls_make_github_clones_x(BaseMake):
         rc = self.clone_repo(clone_url, dest, self.shallow)
         status = "cloned" if rc == 0 else "failed"
         if status == "failed":
-            print(
-                f"ERROR: git clone failed for {name} (rc={rc})",
-                file=sys.stderr,
-            )
+            from x_make_common_x.helpers import error as _error
+
+            _error(f"git clone failed for {name} (rc={rc})")
         return status
 
     def _handle_existing(self, dest: str, clone_url: str, name: str) -> str:
@@ -461,45 +458,40 @@ class x_cls_make_github_clones_x(BaseMake):
         """
         # force_reclone
         if getattr(self, "force_reclone", False):
-            print(
-                f"INFO: force_reclone enabled; removing existing {dest} and recloning",
-                file=sys.stdout,
-            )
+            from x_make_common_x.helpers import info as _info
+
+            _info(f"force_reclone enabled; removing existing {dest} and recloning")
             try:
                 import shutil
 
                 shutil.rmtree(dest)
             except Exception as e:
-                print(
-                    f"ERROR: Failed to remove {dest} for force_reclone: {e}",
-                    file=sys.stderr,
-                )
+                from x_make_common_x.helpers import error as _error
+
+                _error(f"Failed to remove {dest} for force_reclone: {e}")
                 return "failed"
             status = self._do_clone(name, dest, clone_url)
             return status
 
         # destination exists but is not a dir
         if not os.path.isdir(dest):
-            print(
-                f"WARN: Destination exists and is not a directory: {dest}; removing and recloning",
-                file=sys.stderr,
-            )
+            from x_make_common_x.helpers import info as _info
+
+            _info(f"Destination exists and is not a directory: {dest}; removing and recloning")
             try:
                 import shutil
 
                 shutil.rmtree(dest)
             except Exception as e:
-                print(
-                    f"ERROR: Failed to remove invalid destination {dest}: {e}",
-                    file=sys.stderr,
-                )
+                from x_make_common_x.helpers import error as _error
+
+                _error(f"Failed to remove invalid destination {dest}: {e}")
                 return "failed"
             status = self._do_clone(name, dest, clone_url)
             if status == "failed":
-                print(
-                    f"ERROR: git clone failed for {name} after cleanup (rc?)",
-                    file=sys.stderr,
-                )
+                from x_make_common_x.helpers import error as _error
+
+                _error(f"git clone failed for {name} after cleanup (rc?)")
             return status
 
         # missing .git or invalid repo
@@ -507,10 +499,9 @@ class x_cls_make_github_clones_x(BaseMake):
             os.path.join(dest, ".git")
             and os.path.exists(os.path.join(dest, ".git"))
         ):
-            print(
-                f"INFO: {dest} missing .git or invalid repository; performing reclone cleanup",
-                file=sys.stdout,
-            )
+            from x_make_common_x.helpers import info as _info
+
+            _info(f"{dest} missing .git or invalid repository; performing reclone cleanup")
             status = self._reclone_cleanup(dest, clone_url)
             return status
 
@@ -534,16 +525,18 @@ class x_cls_make_github_clones_x(BaseMake):
             # Developer has explicitly opted in; still we avoid writing by
             # default in this code path. If future maintainers implement
             # generation, they should do so deliberately here.
-            print(
-                "WARN: ALLOW_WRITE_YAML_CONFIGS=1 set; scaffold write allowed by policy but no-op remains by default",
-                file=sys.stderr,
+            from x_make_common_x.helpers import error as _error
+
+            _error(
+                "WARN: ALLOW_WRITE_YAML_CONFIGS=1 set; scaffold write allowed by policy but no-op remains by default"
             )
             return
 
         # Default safe behavior: log and no-op.
-        print(
-            "INFO: Repository scaffold write disabled by policy; skipping creation of pyproject/pre-commit/CI workflows.",
-            file=sys.stdout,
+        from x_make_common_x.helpers import info as _info
+
+        _info(
+            "INFO: Repository scaffold write disabled by policy; skipping creation of pyproject/pre-commit/CI workflows."
         )
         return
 
@@ -572,7 +565,8 @@ class x_cls_make_github_clones_x(BaseMake):
                 continue
             if self.names and name not in self.names:
                 skipped += 1
-                print(f"INFO: Skipping {name} (not in whitelist)")
+                from x_make_common_x.helpers import info as _info
+                _info(f"INFO: Skipping {name} (not in whitelist)")
                 continue
 
             repo_status, _, _ = self._clone_or_update_repo(r)
@@ -589,18 +583,23 @@ class x_cls_make_github_clones_x(BaseMake):
         return cloned, updated, skipped, failed
 
     def run(self) -> str:
+        """Run the cloner: fetch repo lists and synchronize into target_dir.
+
+        Returns the target directory on success or an empty string on fatal error.
+        """
         if not self.git_available():
-            print(
-                "ERROR: git is not available on PATH. Please install Git and retry.",
-                file=sys.stderr,
-            )
+            from x_make_common_x.helpers import error as _error
+
+            _error("git is not available on PATH. Please install Git and retry.")
             self.exit_code = 10
             return ""
 
         # Ensure the target directory exists
         os.makedirs(self.target_dir, exist_ok=True)
-        print(f"INFO: Fetching repositories for user: {self.username}")
-        print(f"INFO: Synchronizing repositories in: {self.target_dir}")
+        from x_make_common_x.helpers import info as _info
+
+        _info(f"Fetching repositories for user: {self.username}")
+        _info(f"Synchronizing repositories in: {self.target_dir}")
 
         # Determine auth username if token provided
         if self.token:
@@ -619,14 +618,12 @@ class x_cls_make_github_clones_x(BaseMake):
                 str(self.username), self.token, self.include_forks
             )
 
-        print(f"INFO: Found {len(repos)} repositories (after fork filter).")
+        _info(f"Found {len(repos)} repositories (after fork filter).")
 
         # Delegate the per-repo work to _sync_repos to reduce complexity.
         cloned, updated, skipped, failed = self._sync_repos(repos)
 
-        print(
-            f"INFO: Done. cloned={cloned} updated={updated} skipped={skipped} failed={failed}"
-        )
+        _info(f"Done. cloned={cloned} updated={updated} skipped={skipped} failed={failed}")
         self.exit_code = 0 if failed == 0 else 4
         if failed:
             raise AssertionError(
@@ -671,7 +668,9 @@ def _cli_main(argv: list[str] | None = None) -> int:
         cl.run()
         return 0
     except Exception as e:
-        print(f"ERROR: {e}", file=sys.stderr)
+        from x_make_common_x.helpers import error as _error
+
+        _error(f"ERROR: {e}")
         return 2
 
 
