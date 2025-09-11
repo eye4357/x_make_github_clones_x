@@ -553,13 +553,14 @@ class x_cls_make_github_clones_x(BaseMake):
 # Dynamic workspace parent root (parent of this repo's root)
 _parent_root_cache: str | None = None
 
+
 def _repo_parent_root() -> str:
     global _parent_root_cache
     if _parent_root_cache is not None:
         return _parent_root_cache
     here = Path(__file__).resolve()
     for anc in here.parents:
-        if (anc / '.git').exists():  # repo root
+        if (anc / ".git").exists():  # repo root
             _parent_root_cache = str(anc.parent)
             return _parent_root_cache
     _parent_root_cache = str(here.parent)
@@ -570,9 +571,10 @@ def _repo_parent_root() -> str:
 def _normalize_target_dir(val: str | None) -> str:
     return val or _repo_parent_root()
 
+
 # Override BaseMake.DEFAULT_TARGET_DIR dynamically if unset
 try:
-    if not getattr(BaseMake, 'DEFAULT_TARGET_DIR', None):
+    if not getattr(BaseMake, "DEFAULT_TARGET_DIR", None):
         BaseMake.DEFAULT_TARGET_DIR = _repo_parent_root()
 except Exception:
     pass
