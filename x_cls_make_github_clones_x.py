@@ -14,7 +14,7 @@ import subprocess
 import sys
 import shutil
 import time
-from typing import Any, Iterable
+from typing import Any, Iterable, Dict, List, cast
 
 
 def _info(*args: Any) -> None:
@@ -94,6 +94,7 @@ class x_cls_make_github_clones_x(BaseMake):
         force_reclone: bool = False,
         names: list[str] | str | None = None,
         token: str | None = None,
+        include_private: bool = True,
         **kwargs: Any,
     ) -> None:
         self.username = username
@@ -105,20 +106,31 @@ class x_cls_make_github_clones_x(BaseMake):
         self.names: list[str] | None
         if isinstance(names, str):
             self.names = [n.strip() for n in names.split(",") if n.strip()]
+        elif isinstance(names, list):
+            # names is list[str] here; strip empties
+            self.names = [n.strip() for n in names if n.strip()]
         else:
-            # names may already be a list[str] or None
-            self.names = names
+            self.names = None
         self.token = token or os.environ.get(self.TOKEN_ENV_VAR)
+        self.include_private = include_private
         self.exit_code: int | None = None
 
     def _request_json(
         self, url: str, headers: dict[str, str] | None = None
-    ) -> Any:
+    ) -> list[dict[str, Any]]:
         import urllib.request
 
         req = urllib.request.Request(url, headers=headers or {})
         with urllib.request.urlopen(req) as resp:
-            return json.load(resp)
+            raw: Any = json.load(resp)
+        result: list[dict[str, Any]] = []
+        if isinstance(raw, dict):
+            result.append(cast(dict[str, Any], raw))
+        elif isinstance(raw, list):
+            for entry in cast(list[object], raw):
+                if isinstance(entry, dict):
+                    result.append(cast(dict[str, Any], entry))
+        return result
 
     def fetch_repos(
         self, username: str | None = None, include_forks: bool | None = None
@@ -127,31 +139,56 @@ class x_cls_make_github_clones_x(BaseMake):
         include_forks = (
             include_forks if include_forks is not None else self.include_forks
         )
-        if not username:
-            raise RuntimeError("username required")
+        if not username and not self.token:
+            raise RuntimeError("username or token required")
         per_page = self.PER_PAGE
-        page = 1
-        all_repos: list[dict[str, Any]] = []
-        headers = {"User-Agent": self.USER_AGENT}
+        headers: Dict[str, str] = {"User-Agent": self.USER_AGENT}
         if self.token:
             headers["Authorization"] = f"token {self.token}"
+        collected: Dict[str, Dict[str, Any]] = {}
 
-        while True:
-            url = f"https://api.github.com/users/{username}/repos?per_page={per_page}&page={page}"
-            try:
-                data = self._request_json(url, headers=headers)
-            except Exception:
-                break
-            if not isinstance(data, list) or not data:
-                break
-            for r in data:
-                if not include_forks and r.get("fork"):
-                    continue
-                all_repos.append(r)
-            if len(data) < per_page:
-                break
-            page += 1
-        return all_repos
+        def _collect(base_url: str) -> None:
+            page = 1
+            while True:
+                sep = "&" if "?" in base_url else "?"
+                url = f"{base_url}{sep}per_page={per_page}&page={page}"
+                try:
+                    data_list = self._request_json(url, headers=headers)
+                except Exception:
+                    break
+                if not data_list:
+                    break
+                for raw in data_list:  # raw: dict[str, Any]
+                    if not include_forks and raw.get("fork"):
+                        continue
+                    name_key = raw.get("full_name") or raw.get("name")
+                    if not isinstance(name_key, str) or not name_key:
+                        continue
+                    collected[name_key] = raw
+                if len(data_list) < per_page:
+                    break
+                page += 1
+
+        # Public/user visible repos
+        if username:
+            _collect(f"https://api.github.com/users/{username}/repos?type=all")
+        # Private repos via /user/repos if token + include_private
+        if self.token and self.include_private:
+            _collect(
+                "https://api.github.com/user/repos?affiliation=owner,collaborator,organization_member&visibility=all"
+            )
+
+        repos: List[Dict[str, Any]] = list(collected.values())
+        if self.names is not None:
+            name_set = set(self.names)
+            repos = [
+                r
+                for r in repos
+                if (
+                    r.get("name") in name_set or r.get("full_name") in name_set
+                )
+            ]
+        return repos
 
     def _clone_or_update_repo(self, repo_dir: str, git_url: str) -> bool:
         # If the repo is missing, clone it
@@ -174,6 +211,7 @@ class x_cls_make_github_clones_x(BaseMake):
         # - attempt a pull (prefer --rebase --autostash)
         # - pop stash if we stashed
         _info(f"Updating {repo_dir}")
+        stashed = False  # ensure defined for finally block
         try:
             # Fetch remote refs first
             self.run_cmd(
@@ -190,7 +228,6 @@ class x_cls_make_github_clones_x(BaseMake):
                 else False
             )
 
-            stashed = False
             if has_uncommitted:
                 stash = self.run_cmd(
                     [
@@ -231,9 +268,8 @@ class x_cls_make_github_clones_x(BaseMake):
             _error("pull failed:", pull.stderr or pull.stdout)
             return False
         finally:
-            # Restore stashed changes if we stashed
             try:
-                if "stashed" in locals() and stashed:
+                if stashed:
                     pop = self.run_cmd(
                         [self.GIT_BIN, "-C", repo_dir, "stash", "pop"]
                     )
