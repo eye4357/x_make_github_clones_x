@@ -15,6 +15,7 @@ import sys
 import shutil
 import time
 from typing import Any, Iterable, Dict, List, cast
+from pathlib import Path
 
 
 def _info(*args: Any) -> None:
@@ -38,7 +39,7 @@ def _error(*args: Any) -> None:
 
 
 class BaseMake:
-    DEFAULT_TARGET_DIR: str = r"C:\x_cloned_repos_x"
+    DEFAULT_TARGET_DIR: str | None = None  # dynamic; set after helper defined
     GIT_BIN: str = "git"
     TOKEN_ENV_VAR: str = "GITHUB_TOKEN"
     ALLOW_TOKEN_CLONE_ENV: str = "X_ALLOW_TOKEN_CLONE"
@@ -98,7 +99,10 @@ class x_cls_make_github_clones_x(BaseMake):
         **kwargs: Any,
     ) -> None:
         self.username = username
-        self.target_dir = target_dir or self.DEFAULT_TARGET_DIR
+        if not target_dir:
+            target_dir = _repo_parent_root()
+        target_dir = _normalize_target_dir(target_dir)
+        self.target_dir = target_dir
         self.shallow = shallow
         self.include_forks = include_forks
         self.force_reclone = force_reclone
@@ -519,8 +523,8 @@ class x_cls_make_github_clones_x(BaseMake):
     ) -> int:
         username = username or self.username
         dest = dest or self.target_dir or self.DEFAULT_TARGET_DIR
-        if not username:
-            raise RuntimeError("username required")
+        if not dest:
+            dest = _repo_parent_root()
         os.makedirs(dest, exist_ok=True)
         try:
             repos = self.fetch_repos(username=username)
@@ -544,6 +548,34 @@ class x_cls_make_github_clones_x(BaseMake):
                 exit_code = 3
         self.exit_code = exit_code
         return exit_code
+
+
+# Dynamic workspace parent root (parent of this repo's root)
+_parent_root_cache: str | None = None
+
+def _repo_parent_root() -> str:
+    global _parent_root_cache
+    if _parent_root_cache is not None:
+        return _parent_root_cache
+    here = Path(__file__).resolve()
+    for anc in here.parents:
+        if (anc / '.git').exists():  # repo root
+            _parent_root_cache = str(anc.parent)
+            return _parent_root_cache
+    _parent_root_cache = str(here.parent)
+    return _parent_root_cache
+
+
+# Helper to normalize legacy hard-coded target_dir values (remove explicit legacy path checks)
+def _normalize_target_dir(val: str | None) -> str:
+    return val or _repo_parent_root()
+
+# Override BaseMake.DEFAULT_TARGET_DIR dynamically if unset
+try:
+    if not getattr(BaseMake, 'DEFAULT_TARGET_DIR', None):
+        BaseMake.DEFAULT_TARGET_DIR = _repo_parent_root()
+except Exception:
+    pass
 
 
 def main() -> int:
