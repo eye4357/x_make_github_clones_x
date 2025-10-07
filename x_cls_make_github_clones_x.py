@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
-import shutil
 import time
-from typing import Any, Iterable, Dict, List, cast
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Any, cast
 
 
 def _info(*args: Any) -> None:
@@ -129,11 +130,11 @@ class x_cls_make_github_clones_x(BaseMake):
             raw: Any = json.load(resp)
         result: list[dict[str, Any]] = []
         if isinstance(raw, dict):
-            result.append(cast(dict[str, Any], raw))
+            result.append(cast("dict[str, Any]", raw))
         elif isinstance(raw, list):
-            for entry in cast(list[object], raw):
+            for entry in cast("list[object]", raw):
                 if isinstance(entry, dict):
-                    result.append(cast(dict[str, Any], entry))
+                    result.append(cast("dict[str, Any]", entry))
         return result
 
     def fetch_repos(
@@ -146,10 +147,10 @@ class x_cls_make_github_clones_x(BaseMake):
         if not username and not self.token:
             raise RuntimeError("username or token required")
         per_page = self.PER_PAGE
-        headers: Dict[str, str] = {"User-Agent": self.USER_AGENT}
+        headers: dict[str, str] = {"User-Agent": self.USER_AGENT}
         if self.token:
             headers["Authorization"] = f"token {self.token}"
-        collected: Dict[str, Dict[str, Any]] = {}
+        collected: dict[str, dict[str, Any]] = {}
 
         def _collect(base_url: str) -> None:
             page = 1
@@ -182,7 +183,7 @@ class x_cls_make_github_clones_x(BaseMake):
                 "https://api.github.com/user/repos?affiliation=owner,collaborator,organization_member&visibility=all"
             )
 
-        repos: List[Dict[str, Any]] = list(collected.values())
+        repos: list[dict[str, Any]] = list(collected.values())
         if self.names is not None:
             name_set = set(self.names)
             repos = [
