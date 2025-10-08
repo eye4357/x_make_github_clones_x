@@ -15,16 +15,17 @@ import subprocess
 import sys
 import time
 import urllib.request
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from pathlib import Path
 from http.client import HTTPResponse
-from typing import Callable, Iterable, TypeGuard, cast
+from pathlib import Path
+from typing import TypeGuard, cast
 
 JsonDict = dict[str, object]
 
-_json_loads = cast(Callable[[str], object], json.loads)
+_json_loads = cast("Callable[[str], object]", json.loads)
 _urlopen = cast(
-    Callable[[urllib.request.Request], HTTPResponse],
+    "Callable[[urllib.request.Request], HTTPResponse]",
     urllib.request.urlopen,
 )
 
@@ -32,7 +33,7 @@ _urlopen = cast(
 def _is_json_dict(data: object) -> TypeGuard[JsonDict]:
     if not isinstance(data, dict):
         return False
-    dict_obj = cast(dict[object, object], data)
+    dict_obj = cast("dict[object, object]", data)
     for key in dict_obj.keys():
         if not isinstance(key, str):
             return False
