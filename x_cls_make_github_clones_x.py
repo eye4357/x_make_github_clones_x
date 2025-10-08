@@ -14,27 +14,110 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Iterable
+import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from http.client import HTTPResponse
+from typing import Callable, Iterable, TypeGuard, cast
+
+JsonDict = dict[str, object]
+
+_json_loads = cast(Callable[[str], object], json.loads)
+_urlopen = cast(
+    Callable[[urllib.request.Request], HTTPResponse],
+    urllib.request.urlopen,
+)
 
 
-def _info(*args: Any) -> None:
+def _is_json_dict(data: object) -> TypeGuard[JsonDict]:
+    if not isinstance(data, dict):
+        return False
+    dict_obj = cast(dict[object, object], data)
+    for key in dict_obj.keys():
+        if not isinstance(key, str):
+            return False
+    return True
+
+
+def _is_json_list(data: object) -> TypeGuard[list[object]]:
+    return isinstance(data, list)
+
+
+@dataclass(frozen=True)
+class RepoRecord:
+    name: str
+    full_name: str
+    clone_url: str | None
+    ssh_url: str | None
+    fork: bool
+
+    def matches(self, names: set[str] | None) -> bool:
+        if names is None:
+            return True
+        return self.name in names or self.full_name in names
+
+    def resolved_clone_url(
+        self, token: str | None, allow_token_clone: bool
+    ) -> str:
+        base_url = self.clone_url or self.ssh_url or ""
+        if (
+            token
+            and allow_token_clone
+            and base_url.startswith("https://")
+        ):
+            return base_url.replace("https://", f"https://{token}@")
+        return base_url
+
+
+def _coerce_repo_record(data: JsonDict) -> RepoRecord | None:
+    name_obj = data.get("name")
+    if not isinstance(name_obj, str) or not name_obj:
+        return None
+    full_name_obj = data.get("full_name")
+    full_name = (
+        full_name_obj
+        if isinstance(full_name_obj, str) and full_name_obj
+        else name_obj
+    )
+    clone_url_obj = data.get("clone_url")
+    clone_url = (
+        clone_url_obj
+        if isinstance(clone_url_obj, str) and clone_url_obj
+        else None
+    )
+    ssh_url_obj = data.get("ssh_url")
+    ssh_url = (
+        ssh_url_obj if isinstance(ssh_url_obj, str) and ssh_url_obj else None
+    )
+    fork_obj = data.get("fork")
+    fork = fork_obj if isinstance(fork_obj, bool) else False
+    return RepoRecord(
+        name=name_obj,
+        full_name=full_name,
+        clone_url=clone_url,
+        ssh_url=ssh_url,
+        fork=fork,
+    )
+
+
+def _info(*args: object) -> None:
+    message = " ".join(str(arg) for arg in args)
     try:
-        print(" ".join(str(a) for a in args))
+        print(message)
     except Exception:
         try:
-            sys.stdout.write(" ".join(str(a) for a in args) + "\n")
+            sys.stdout.write(message + "\n")
         except Exception:
             pass
 
 
-def _error(*args: Any) -> None:
+def _error(*args: object) -> None:
+    message = " ".join(str(arg) for arg in args)
     try:
-        print(" ".join(str(a) for a in args), file=sys.stderr)
+        print(message, file=sys.stderr)
     except Exception:
         try:
-            sys.stderr.write(" ".join(str(a) for a in args) + "\n")
+            sys.stderr.write(message + "\n")
         except Exception:
             pass
 
@@ -51,25 +134,22 @@ class BaseMake:
     CLONE_RETRIES: int = 1
 
     @classmethod
-    def get_env(cls, name: str, default: Any = None) -> Any:
-        return os.environ.get(name, default)
+    def get_env(cls, name: str, default: str | None = None) -> str | None:
+        value = os.environ.get(name)
+        return value if value is not None else default
 
     @classmethod
     def get_env_bool(cls, name: str, default: bool = False) -> bool:
-        v = os.environ.get(name, None)
-        if v is None:
+        env_value = os.environ.get(name)
+        if env_value is None:
             return default
-        return str(v).lower() in ("1", "true", "yes")
+        return env_value.lower() in ("1", "true", "yes")
 
     def run_cmd(
-        self, args: Iterable[str], **kwargs: Any
+        self, args: Iterable[str], *, check: bool = False
     ) -> subprocess.CompletedProcess[str]:
-        # Ensure we don't pass duplicate 'check' keyword to subprocess.run
-        # (callers may pass check in kwargs). Pop any provided value and
-        # supply it explicitly.
-        check = kwargs.pop("check", False)
         return subprocess.run(
-            list(args), check=check, capture_output=True, text=True, **kwargs
+            list(args), check=check, capture_output=True, text=True
         )
 
     def get_token(self) -> str | None:
@@ -96,8 +176,8 @@ class x_cls_make_github_clones_x(BaseMake):
         force_reclone: bool = False,
         names: list[str] | str | None = None,
         token: str | None = None,
-        include_private: bool = True,
-        **kwargs: Any,
+    include_private: bool = True,
+    **_: object,
     ) -> None:
         self.username = username
         if not target_dir:
@@ -122,24 +202,23 @@ class x_cls_make_github_clones_x(BaseMake):
 
     def _request_json(
         self, url: str, headers: dict[str, str] | None = None
-    ) -> list[dict[str, Any]]:
-        import urllib.request
-
+    ) -> list[JsonDict]:
         req = urllib.request.Request(url, headers=headers or {})
-        with urllib.request.urlopen(req) as resp:
-            raw: Any = json.load(resp)
-        result: list[dict[str, Any]] = []
-        if isinstance(raw, dict):
-            result.append(cast("dict[str, Any]", raw))
-        elif isinstance(raw, list):
-            for entry in cast("list[object]", raw):
-                if isinstance(entry, dict):
-                    result.append(cast("dict[str, Any]", entry))
+        with _urlopen(req) as resp:
+            raw_body = resp.read()
+        payload = _json_loads(raw_body.decode("utf-8"))
+        result: list[JsonDict] = []
+        if _is_json_dict(payload):
+            result.append(payload)
+        elif _is_json_list(payload):
+            for entry_obj in payload:
+                if _is_json_dict(entry_obj):
+                    result.append(entry_obj)
         return result
 
     def fetch_repos(
         self, username: str | None = None, include_forks: bool | None = None
-    ) -> list[dict[str, Any]]:
+    ) -> list[RepoRecord]:
         username = username or self.username
         include_forks = (
             include_forks if include_forks is not None else self.include_forks
@@ -150,7 +229,7 @@ class x_cls_make_github_clones_x(BaseMake):
         headers: dict[str, str] = {"User-Agent": self.USER_AGENT}
         if self.token:
             headers["Authorization"] = f"token {self.token}"
-        collected: dict[str, dict[str, Any]] = {}
+        collected: dict[str, RepoRecord] = {}
 
         def _collect(base_url: str) -> None:
             page = 1
@@ -163,13 +242,13 @@ class x_cls_make_github_clones_x(BaseMake):
                     break
                 if not data_list:
                     break
-                for raw in data_list:  # raw: dict[str, Any]
-                    if not include_forks and raw.get("fork"):
+                for raw in data_list:
+                    repo = _coerce_repo_record(raw)
+                    if repo is None:
                         continue
-                    name_key = raw.get("full_name") or raw.get("name")
-                    if not isinstance(name_key, str) or not name_key:
+                    if not include_forks and repo.fork:
                         continue
-                    collected[name_key] = raw
+                    collected[repo.full_name] = repo
                 if len(data_list) < per_page:
                     break
                 page += 1
@@ -183,16 +262,10 @@ class x_cls_make_github_clones_x(BaseMake):
                 "https://api.github.com/user/repos?affiliation=owner,collaborator,organization_member&visibility=all"
             )
 
-        repos: list[dict[str, Any]] = list(collected.values())
+        repos: list[RepoRecord] = list(collected.values())
         if self.names is not None:
-            name_set = set(self.names)
-            repos = [
-                r
-                for r in repos
-                if (
-                    r.get("name") in name_set or r.get("full_name") in name_set
-                )
-            ]
+            name_set = {name for name in self.names if name}
+            repos = [repo for repo in repos if repo.matches(name_set)]
         return repos
 
     def _clone_or_update_repo(self, repo_dir: str, git_url: str) -> bool:
@@ -509,15 +582,8 @@ class x_cls_make_github_clones_x(BaseMake):
                 pass
             return False
 
-    def _repo_clone_url(self, repo: dict[str, Any]) -> str:
-        clone_url = repo.get("clone_url") or repo.get("ssh_url") or ""
-        if (
-            self.token
-            and self.allow_token_clone
-            and clone_url.startswith("https://")
-        ):
-            return clone_url.replace("https://", f"https://{self.token}@")
-        return clone_url
+    def _repo_clone_url(self, repo: RepoRecord) -> str:
+        return repo.resolved_clone_url(self.token, self.allow_token_clone)
 
     def sync(
         self, username: str | None = None, dest: str | None = None
@@ -534,16 +600,20 @@ class x_cls_make_github_clones_x(BaseMake):
             return 2
 
         if self.names is not None:
-            name_set = set(self.names)
-            repos = [r for r in repos if r.get("name") in name_set]
+            name_set = {name for name in self.names if name}
+            repos = [repo for repo in repos if repo.matches(name_set)]
 
         exit_code = 0
-        for r in repos:
-            name = r.get("name")
+        for repo in repos:
+            name = repo.name
             if not name:
                 continue
             repo_dir = os.path.join(dest, name)
-            git_url = self._repo_clone_url(r)
+            git_url = self._repo_clone_url(repo)
+            if not git_url:
+                _error(f"missing clone URL for {name}")
+                exit_code = 3
+                continue
             ok = self._attempt_update(repo_dir, git_url)
             if not ok:
                 exit_code = 3
@@ -575,7 +645,7 @@ def _normalize_target_dir(val: str | None) -> str:
 
 # Override BaseMake.DEFAULT_TARGET_DIR dynamically if unset
 try:
-    if not getattr(BaseMake, "DEFAULT_TARGET_DIR", None):
+    if BaseMake.DEFAULT_TARGET_DIR is None:
         BaseMake.DEFAULT_TARGET_DIR = _repo_parent_root()
 except Exception:
     pass
