@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 import urllib.request
-from typing import Callable, Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from http.client import HTTPResponse
 from pathlib import Path
