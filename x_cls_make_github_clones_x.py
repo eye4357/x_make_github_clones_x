@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 import urllib.request
-from collections.abc import Callable, Iterable
+from typing import Callable, Iterable
 from dataclasses import dataclass
 from http.client import HTTPResponse
 from pathlib import Path
@@ -177,8 +177,8 @@ class x_cls_make_github_clones_x(BaseMake):
         force_reclone: bool = False,
         names: list[str] | str | None = None,
         token: str | None = None,
-    include_private: bool = True,
-    **_: object,
+        include_private: bool = True,
+        **_: object,
     ) -> None:
         self.username = username
         if not target_dir:
