@@ -57,15 +57,9 @@ class RepoRecord:
             return True
         return self.name in names or self.full_name in names
 
-    def resolved_clone_url(
-        self, token: str | None, allow_token_clone: bool
-    ) -> str:
+    def resolved_clone_url(self, token: str | None, allow_token_clone: bool) -> str:
         base_url = self.clone_url or self.ssh_url or ""
-        if (
-            token
-            and allow_token_clone
-            and base_url.startswith("https://")
-        ):
+        if token and allow_token_clone and base_url.startswith("https://"):
             return base_url.replace("https://", f"https://{token}@")
         return base_url
 
@@ -76,20 +70,14 @@ def _coerce_repo_record(data: JsonDict) -> RepoRecord | None:
         return None
     full_name_obj = data.get("full_name")
     full_name = (
-        full_name_obj
-        if isinstance(full_name_obj, str) and full_name_obj
-        else name_obj
+        full_name_obj if isinstance(full_name_obj, str) and full_name_obj else name_obj
     )
     clone_url_obj = data.get("clone_url")
     clone_url = (
-        clone_url_obj
-        if isinstance(clone_url_obj, str) and clone_url_obj
-        else None
+        clone_url_obj if isinstance(clone_url_obj, str) and clone_url_obj else None
     )
     ssh_url_obj = data.get("ssh_url")
-    ssh_url = (
-        ssh_url_obj if isinstance(ssh_url_obj, str) and ssh_url_obj else None
-    )
+    ssh_url = ssh_url_obj if isinstance(ssh_url_obj, str) and ssh_url_obj else None
     fork_obj = data.get("fork")
     fork = fork_obj if isinstance(fork_obj, bool) else False
     return RepoRecord(
@@ -149,9 +137,7 @@ class BaseMake:
     def run_cmd(
         self, args: Iterable[str], *, check: bool = False
     ) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            list(args), check=check, capture_output=True, text=True
-        )
+        return subprocess.run(list(args), check=check, capture_output=True, text=True)
 
     def get_token(self) -> str | None:
         return os.environ.get(self.TOKEN_ENV_VAR)
@@ -293,9 +279,7 @@ class x_cls_make_github_clones_x(BaseMake):
         stashed = False  # ensure defined for finally block
         try:
             # Fetch remote refs first
-            self.run_cmd(
-                [self.GIT_BIN, "-C", repo_dir, "fetch", "--all", "--prune"]
-            )
+            self.run_cmd([self.GIT_BIN, "-C", repo_dir, "fetch", "--all", "--prune"])
 
             status = self.run_cmd(
                 [self.GIT_BIN, "-C", repo_dir, "status", "--porcelain"],
@@ -349,9 +333,7 @@ class x_cls_make_github_clones_x(BaseMake):
         finally:
             try:
                 if stashed:
-                    pop = self.run_cmd(
-                        [self.GIT_BIN, "-C", repo_dir, "stash", "pop"]
-                    )
+                    pop = self.run_cmd([self.GIT_BIN, "-C", repo_dir, "stash", "pop"])
                     if pop.returncode != 0:
                         _error("stash pop failed:", pop.stderr or pop.stdout)
             except Exception as e:
@@ -396,9 +378,7 @@ class x_cls_make_github_clones_x(BaseMake):
 
         try:
             # Fetch first
-            self.run_cmd(
-                [self.GIT_BIN, "-C", repo_dir, "fetch", "--all", "--prune"]
-            )
+            self.run_cmd([self.GIT_BIN, "-C", repo_dir, "fetch", "--all", "--prune"])
 
             status = self.run_cmd(
                 [self.GIT_BIN, "-C", repo_dir, "status", "--porcelain"],
@@ -470,9 +450,7 @@ class x_cls_make_github_clones_x(BaseMake):
 
             # Restore stashed changes if any
             if stashed:
-                pop = self.run_cmd(
-                    [self.GIT_BIN, "-C", repo_dir, "stash", "pop"]
-                )
+                pop = self.run_cmd([self.GIT_BIN, "-C", repo_dir, "stash", "pop"])
                 if pop.returncode != 0:
                     _error("stash pop failed:", pop.stderr or pop.stdout)
 
@@ -547,9 +525,7 @@ class x_cls_make_github_clones_x(BaseMake):
             except Exception:
                 # try to restore from backup
                 try:
-                    if os.path.exists(bak_dir) and not os.path.exists(
-                        repo_dir
-                    ):
+                    if os.path.exists(bak_dir) and not os.path.exists(repo_dir):
                         shutil.move(bak_dir, repo_dir)
                 except Exception:
                     pass
@@ -586,9 +562,7 @@ class x_cls_make_github_clones_x(BaseMake):
     def _repo_clone_url(self, repo: RepoRecord) -> str:
         return repo.resolved_clone_url(self.token, self.allow_token_clone)
 
-    def sync(
-        self, username: str | None = None, dest: str | None = None
-    ) -> int:
+    def sync(self, username: str | None = None, dest: str | None = None) -> int:
         username = username or self.username
         dest = dest or self.target_dir or self.DEFAULT_TARGET_DIR
         if not dest:
