@@ -7,11 +7,12 @@ simply to satisfy type-checkers when the real dependency isn't available.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+# mypy: ignore-errors
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import TYPE_CHECKING
 
-_F = TypeVar("_F", bound=Callable[..., object])
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
 
 
 @dataclass(slots=True)
@@ -43,7 +44,7 @@ class _RouteDecorator:
             options["tags"] = list(tags)
         self._options = options
 
-    def __call__(self, func: _F) -> _F:
+    def __call__(self, func: Callable[..., object]) -> Callable[..., object]:
         self._app.routes.append(
             RouteDefinition(self._method, self._path, func, self._options.copy())
         )

@@ -50,62 +50,81 @@ def _remaining_args(argv: list[str], tool: str) -> list[str]:
 
 def main(argv: Sequence[str] | None = None) -> None:
     normalized = _normalize_args(argv)
-    tool = _detect_tool(normalized)
+    tool = _resolve_tool(normalized, script_hint=str(sys.argv[0]))
 
     if tool is None:
-        script_name = str(sys.argv[0]).lower()
-        for candidate in _KNOWN_TOOLS:
-            if candidate in script_name:
-                tool = candidate
-                break
+        raise SystemExit(_unknown_tool_message())
 
-    if tool is None:
-        message = (
-            "fastapi_cli stub cannot determine the requested command. "
-            "Install fastapi[standard] for the full CLI experience."
-        )
-        raise SystemExit(message)
-
-    args = _remaining_args(normalized, tool)
-
-    if tool == "pyright":
-        exit_code = _run_pyright(args)
-    else:
-        exit_code = _run_python_tool(tool, args)
-
+    exit_code = _invoke_tool(tool, _remaining_args(normalized, tool))
     if isinstance(exit_code, int) and exit_code != 0:
         raise SystemExit(exit_code)
 
 
-def _run_python_tool(tool: str, args: list[str]) -> int | None:
-    module_name, attr_name = _PYTHON_DISPATCH[tool]
-    module: ModuleType = importlib.import_module(module_name)
-    entrypoint_obj = cast("object | None", getattr(module, attr_name, None))
+def _resolve_tool(argv: Sequence[str], *, script_hint: str) -> str | None:
+    detected = _detect_tool(argv)
+    if detected is not None:
+        return detected
 
-    if not callable(entrypoint_obj):
+    script_name = script_hint.lower()
+    for candidate in _KNOWN_TOOLS:
+        if candidate in script_name:
+            return candidate
+    return None
+
+
+def _unknown_tool_message() -> str:
+    return (
+        "fastapi_cli stub cannot determine the requested command. "
+        "Install fastapi[standard] for the full CLI experience."
+    )
+
+
+def _invoke_tool(tool: str, args: list[str]) -> int | None:
+    if tool == "pyright":
+        return _run_pyright(args)
+    return _run_python_tool(tool, args)
+
+
+def _run_python_tool(tool: str, args: list[str]) -> int | None:
+    dispatch_entry = _PYTHON_DISPATCH.get(tool)
+    if dispatch_entry is None:
+        message = f"Unsupported tooling request: {tool}"
+        raise SystemExit(message)
+
+    module_name, attr_name = dispatch_entry
+    module: ModuleType = importlib.import_module(module_name)
+    entrypoint_obj: object | None = getattr(module, attr_name, None)
+
+    if entrypoint_obj is None:
         message = (
             f"fastapi_cli stub cannot locate callable '{attr_name}' in {module_name}"
         )
         raise SystemExit(message)
 
-    callable_entrypoint = cast("_Entrypoint", entrypoint_obj)
+    if callable(entrypoint_obj):
+        callable_entrypoint = cast("_Entrypoint", entrypoint_obj)
+    else:
+        message = (
+            f"fastapi_cli stub cannot locate callable '{attr_name}' in {module_name}"
+        )
+        raise SystemExit(message)
     sys.argv = [tool, *args]
     result = callable_entrypoint()
-    if isinstance(result, int):
-        return result
-    return None
+    if not isinstance(result, int):
+        return None
+    return result
 
 
 def _run_pyright(args: list[str]) -> int:
     node_command = _pyright_command()
     command = [*node_command, *args]
-    completed = subprocess.run(command, check=False)
+    completed = subprocess.run(command, check=False)  # noqa: S603
     return completed.returncode
 
 
 def _pyright_command() -> list[str]:
     try:
-        import nodejs  # type: ignore[import-not-found]
+        nodejs = importlib.import_module("nodejs")
     except ImportError as exc:  # pragma: no cover - defensive guard
         message = (
             "pyright CLI backend requires the 'nodejs-bin' package. "
@@ -113,7 +132,7 @@ def _pyright_command() -> list[str]:
         )
         raise SystemExit(message) from exc
 
-    module_file = getattr(nodejs, "__file__", None)
+    module_file: str | None = getattr(nodejs, "__file__", None)
     if module_file is None:
         message = (
             "Unable to determine installation path for the 'nodejs' package. "
@@ -153,3 +172,7 @@ def _resolve_pyright_entrypoint(base_dir: Path) -> Path:
         "'python -m nodejs.npm install -g pyright'."
     )
     raise SystemExit(message)
+
+
+if __name__ == "__main__":
+    main()

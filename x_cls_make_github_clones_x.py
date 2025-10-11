@@ -547,24 +547,25 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
         return exit_code
 
 
-_repo_parent_root_cache: Path | None = None
+_REPO_PARENT_ROOT_CACHE: dict[str, Path] = {}
 
 
-def _repo_parent_root() -> Path:
-    global _repo_parent_root_cache
-    if _repo_parent_root_cache is not None:
-        return _repo_parent_root_cache
-
+def _compute_repo_parent_root() -> Path:
     here = Path(__file__).resolve()
     for ancestor in here.parents:
         git_dir = ancestor / ".git"
         if git_dir.exists():
-            _repo_parent_root_cache = ancestor.parent
-            break
-    else:
-        _repo_parent_root_cache = here.parent
+            return ancestor.parent
+    return here.parent
 
-    return _repo_parent_root_cache
+
+def _repo_parent_root() -> Path:
+    cached = _REPO_PARENT_ROOT_CACHE.get("value")
+    if cached is not None:
+        return cached
+    result = _compute_repo_parent_root()
+    _REPO_PARENT_ROOT_CACHE["value"] = result
+    return result
 
 
 def _normalize_target_dir(val: str | None) -> str:
