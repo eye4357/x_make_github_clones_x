@@ -355,7 +355,7 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
             _error("exception while updating:", exc)
             return False
 
-    def _force_refresh_repo(self, repo_dir: Path, git_url: str) -> bool:  # noqa: C901
+    def _force_refresh_repo(self, repo_dir: Path, git_url: str) -> bool:
         """Refresh an existing repo in-place without deleting files."""
 
         repo_path = Path(repo_dir)
@@ -363,150 +363,170 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
             return self._clone_or_update_repo(repo_path, git_url)
 
         stashed = False
-        success = True
+        success = False
         try:
-            self.run_cmd(
-                [
-                    self.GIT_BIN,
-                    "-C",
-                    str(repo_path),
-                    "fetch",
-                    "--all",
-                    "--prune",
-                ]
-            )
-
-            status = self.run_cmd(
-                [self.GIT_BIN, "-C", str(repo_path), "status", "--porcelain"],
-                check=False,
-            )
-            has_uncommitted = bool(status.stdout.strip())
-
-            if has_uncommitted:
-                stash = self.run_cmd(
-                    [
-                        self.GIT_BIN,
-                        "-C",
-                        str(repo_path),
-                        "stash",
-                        "push",
-                        "-u",
-                        "-m",
-                        "force-refresh-stash",
-                    ]
-                )
-                stashed = stash.returncode == 0
-
-            pull_args = [self.GIT_BIN, "-C", str(repo_path), "pull"]
-            if not self.shallow:
-                pull_args.extend(["--rebase", "--autostash"])
-            pull = self.run_cmd(pull_args)
-            if pull.returncode != 0:
-                self.run_cmd(
-                    [
-                        self.GIT_BIN,
-                        "-C",
-                        str(repo_path),
-                        "fetch",
-                        "--all",
-                        "--prune",
-                    ]
-                )
-                reset = self.run_cmd(
-                    [
-                        self.GIT_BIN,
-                        "-C",
-                        str(repo_path),
-                        "reset",
-                        "--hard",
-                        "origin/HEAD",
-                    ]
-                )
-                self.run_cmd([self.GIT_BIN, "-C", str(repo_path), "clean", "-fdx"])
-                if reset.returncode != 0:
-                    _error("force refresh reset failed:", reset.stderr or reset.stdout)
-                    success = False
+            self._fetch_all(repo_path)
+            if self._has_uncommitted_changes(repo_path):
+                stashed = self._stash_changes(repo_path)
+            success = self._pull_or_reset(repo_path)
         except OSError as exc:
             _error("force refresh exception:", exc)
             success = False
         finally:
             if stashed:
-                try:
-                    pop = self.run_cmd(
-                        [
-                            self.GIT_BIN,
-                            "-C",
-                            str(repo_path),
-                            "stash",
-                            "pop",
-                        ]
-                    )
-                except OSError as pop_exc:
-                    _error("failed to pop stash:", pop_exc)
-                else:
-                    if pop.returncode != 0:
-                        _error("stash pop failed:", pop.stderr or pop.stdout)
+                self._pop_stash(repo_path)
         return success
 
-    def _clone_to_temp_swap(self, repo_dir: Path, git_url: str) -> bool:  # noqa: C901
+    def _clone_to_temp_swap(self, repo_dir: Path, git_url: str) -> bool:
         """Clone into a temporary directory and atomically swap the repo."""
 
         repo_path = Path(repo_dir)
-        parent = repo_path.parent
-        base = repo_path.name
-        ts = int(time.time())
-        tmp_dir = parent / f".{base}.tmp.{ts}"
-        bak_dir = parent / f".{base}.bak.{ts}"
-
         try:
-            parent.mkdir(parents=True, exist_ok=True)
+            tmp_dir, bak_dir = self._prepare_clone_paths(repo_path)
         except OSError as exc:
             _error("failed to ensure parent directory:", exc)
             return False
 
+        if not self._clone_with_retries(tmp_dir, git_url):
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return False
+
+        backup_created = False
+        if repo_path.exists():
+            try:
+                self._backup_repo(repo_path, bak_dir)
+            except OSError as exc:
+                _error("failed to backup existing repository:", exc)
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                return False
+            backup_created = True
+
+        try:
+            self._replace_repo(repo_path, tmp_dir)
+        except OSError as exc:
+            _error("failed to replace repository:", exc)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            if backup_created:
+                self._restore_backup(bak_dir, repo_path)
+            return False
+
+        shutil.rmtree(bak_dir, ignore_errors=True)
+        return True
+
+    def _fetch_all(self, repo_path: Path) -> None:
+        self.run_cmd(
+            [
+                self.GIT_BIN,
+                "-C",
+                str(repo_path),
+                "fetch",
+                "--all",
+                "--prune",
+            ]
+        )
+
+    def _has_uncommitted_changes(self, repo_path: Path) -> bool:
+        status = self.run_cmd(
+            [self.GIT_BIN, "-C", str(repo_path), "status", "--porcelain"],
+            check=False,
+        )
+        return bool(status.stdout.strip())
+
+    def _stash_changes(self, repo_path: Path) -> bool:
+        stash = self.run_cmd(
+            [
+                self.GIT_BIN,
+                "-C",
+                str(repo_path),
+                "stash",
+                "push",
+                "-u",
+                "-m",
+                "force-refresh-stash",
+            ]
+        )
+        return stash.returncode == 0
+
+    def _pull_or_reset(self, repo_path: Path) -> bool:
+        pull_args = [self.GIT_BIN, "-C", str(repo_path), "pull"]
+        if not self.shallow:
+            pull_args.extend(["--rebase", "--autostash"])
+        pull = self.run_cmd(pull_args)
+        if pull.returncode == 0:
+            return True
+
+        self._fetch_all(repo_path)
+        reset = self.run_cmd(
+            [
+                self.GIT_BIN,
+                "-C",
+                str(repo_path),
+                "reset",
+                "--hard",
+                "origin/HEAD",
+            ]
+        )
+        self.run_cmd([self.GIT_BIN, "-C", str(repo_path), "clean", "-fdx"])
+        if reset.returncode != 0:
+            _error("force refresh reset failed:", reset.stderr or reset.stdout)
+            return False
+        return True
+
+    def _pop_stash(self, repo_path: Path) -> None:
+        try:
+            pop = self.run_cmd(
+                [
+                    self.GIT_BIN,
+                    "-C",
+                    str(repo_path),
+                    "stash",
+                    "pop",
+                ]
+            )
+        except OSError as exc:
+            _error("failed to pop stash:", exc)
+            return
+        if pop.returncode != 0:
+            _error("stash pop failed:", pop.stderr or pop.stdout)
+
+    def _prepare_clone_paths(self, repo_path: Path) -> tuple[Path, Path]:
+        parent = repo_path.parent
+        parent.mkdir(parents=True, exist_ok=True)
+        base = repo_path.name
+        ts = int(time.time())
+        tmp_dir = parent / f".{base}.tmp.{ts}"
+        bak_dir = parent / f".{base}.bak.{ts}"
+        return tmp_dir, bak_dir
+
+    def _clone_with_retries(self, tmp_dir: Path, git_url: str) -> bool:
         args = [self.GIT_BIN, "clone", git_url, str(tmp_dir)]
         if self.shallow:
             args[2:2] = ["--depth", "1"]
-
-        clone_ok = False
-        for _ in range(max(1, self.CLONE_RETRIES)):
+        attempts = max(1, self.CLONE_RETRIES)
+        for _ in range(attempts):
             try:
                 proc = self.run_cmd(args)
             except OSError as exc:
                 _error("git clone failed:", exc)
                 return False
             if proc.returncode == 0:
-                clone_ok = True
-                break
+                return True
             _error("clone failed:", proc.stderr or proc.stdout)
             shutil.rmtree(tmp_dir, ignore_errors=True)
+        return False
 
-        if not clone_ok:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            return False
+    def _backup_repo(self, repo_path: Path, bak_dir: Path) -> None:
+        shutil.move(str(repo_path), str(bak_dir))
 
-        if repo_path.exists():
+    def _replace_repo(self, repo_path: Path, tmp_dir: Path) -> None:
+        shutil.move(str(tmp_dir), str(repo_path))
+
+    def _restore_backup(self, bak_dir: Path, repo_path: Path) -> None:
+        if bak_dir.exists() and not repo_path.exists():
             try:
-                shutil.move(str(repo_path), str(bak_dir))
+                shutil.move(str(bak_dir), str(repo_path))
             except OSError as exc:
-                _error("failed to backup existing repository:", exc)
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-                return False
-
-        try:
-            shutil.move(str(tmp_dir), str(repo_path))
-        except OSError as exc:
-            _error("failed to replace repository:", exc)
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            if bak_dir.exists() and not repo_path.exists():
-                try:
-                    shutil.move(str(bak_dir), str(repo_path))
-                except OSError as restore_exc:
-                    _error("failed to restore original repository:", restore_exc)
-            return False
-
-        shutil.rmtree(bak_dir, ignore_errors=True)
-        return True
+                _error("failed to restore original repository:", exc)
 
     def _repo_clone_url(self, repo: RepoRecord) -> str:
         return repo.resolved_clone_url(
@@ -522,7 +542,12 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
         dest_path.mkdir(parents=True, exist_ok=True)
         try:
             repos = self.fetch_repos(username=username)
-        except (RuntimeError, urllib_error.URLError, OSError, ValueError) as exc:
+        except (
+            RuntimeError,
+            urllib_error.URLError,
+            OSError,
+            ValueError,
+        ) as exc:
             _error("failed to fetch repo list:", exc)
             return 2
 

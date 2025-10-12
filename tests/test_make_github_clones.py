@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pytest
-
 from x_make_github_clones_x.x_cls_make_github_clones_x import (
     RepoRecord,
     x_cls_make_github_clones_x,
@@ -22,8 +20,7 @@ EXPECTED_SUCCESS_EXIT = 0
 TEST_TOKEN_VALUE = "secrettoken"  # noqa: S105 - deterministic test credential
 
 
-@pytest.fixture
-def repo_record() -> RepoRecord:
+def _make_repo_record() -> RepoRecord:
     return RepoRecord(
         name="alpha",
         full_name="octocat/alpha",
@@ -73,8 +70,8 @@ def test_fetch_repos_filters_forks_and_names(monkeypatch: MonkeyPatch) -> None:
 def test_sync_reports_missing_clone_url(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
-    repo_record: RepoRecord,
 ) -> None:
+    repo_record = _make_repo_record()
     missing = RepoRecord(
         name="empty",
         full_name="octocat/empty",
@@ -125,8 +122,8 @@ def test_sync_reports_missing_clone_url(
 def test_sync_success(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
-    repo_record: RepoRecord,
 ) -> None:
+    repo_record = _make_repo_record()
     client = x_cls_make_github_clones_x(username="octocat", target_dir=str(tmp_path))
 
     def fake_fetch(
@@ -167,8 +164,8 @@ def test_sync_success(
 def test_sync_uses_token_when_allowed(
     monkeypatch: MonkeyPatch,
     tmp_path: Path,
-    repo_record: RepoRecord,
 ) -> None:
+    repo_record = _make_repo_record()
     monkeypatch.setenv(x_cls_make_github_clones_x.ALLOW_TOKEN_CLONE_ENV, "1")
     client = x_cls_make_github_clones_x(
         username="octocat",
