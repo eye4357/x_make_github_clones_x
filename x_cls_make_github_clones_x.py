@@ -16,9 +16,10 @@ import subprocess
 import sys
 import time
 import urllib.request
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeGuard, cast
+from typing import TYPE_CHECKING, Protocol, TypeGuard, TypeVar, cast
 from urllib import error as urllib_error
 from urllib.parse import urlsplit
 
@@ -27,6 +28,12 @@ if TYPE_CHECKING:
     from http.client import HTTPResponse
 
 JsonDict = dict[str, object]
+
+T_co = TypeVar("T_co", covariant=True)
+
+
+class Factory(Protocol[T_co]):
+    def __call__(self, *args: object, **kwargs: object) -> T_co: ...
 
 
 def _json_loads(payload: str) -> object:
@@ -601,6 +608,173 @@ def _normalize_target_dir(val: str | None) -> str:
 
 if BaseMake.DEFAULT_TARGET_DIR is None:
     BaseMake.DEFAULT_TARGET_DIR = str(_repo_parent_root())
+
+
+def _as_callable(value: object) -> Factory[object] | None:
+    if callable(value):
+        return cast("Factory[object]", value)
+    return None
+
+
+def _is_unexpected_keyword_error(error: TypeError) -> bool:
+    lowered = str(error).lower()
+    return "unexpected keyword" in lowered or "got an unexpected keyword" in lowered
+
+
+def _set_force_reclone_attr(cloner: object, *, flag: bool) -> None:
+    with suppress(AttributeError, TypeError):
+        setattr(cloner, "force_reclone", flag)  # noqa: B010
+
+
+def _instantiate_cloner(  # noqa: PLR0913
+    *,
+    username: str,
+    target_dir: str,
+    shallow: bool,
+    include_forks: bool,
+    force_reclone: bool,
+    ctx: object | None,
+) -> x_cls_make_github_clones_x:
+    try:
+        cloner = x_cls_make_github_clones_x(
+            username=username,
+            target_dir=target_dir,
+            shallow=shallow,
+            include_forks=include_forks,
+            force_reclone=force_reclone,
+            ctx=ctx,
+        )
+    except TypeError as error:
+        if not _is_unexpected_keyword_error(error):
+            raise
+        cloner = x_cls_make_github_clones_x(
+            username=username,
+            target_dir=target_dir,
+            shallow=shallow,
+            include_forks=include_forks,
+        )
+        _set_force_reclone_attr(cloner, flag=force_reclone)
+    else:
+        _set_force_reclone_attr(cloner, flag=force_reclone)
+    return cloner
+
+
+def _call_cloner_entrypoint(
+    cloner: object,
+    method_name: str,
+    *,
+    args: tuple[object, ...] = (),
+    suppress_exceptions: tuple[type[BaseException], ...] = (),
+) -> bool:
+    candidate_attr: object = getattr(cloner, method_name, None)
+    candidate = _as_callable(candidate_attr)
+    if candidate is None:
+        return False
+    if suppress_exceptions:
+        with suppress(*suppress_exceptions):
+            candidate(*args)
+    else:
+        candidate(*args)
+    return True
+
+
+def _call_cloner_sync(cloner: object, *, username: str, target_dir: str) -> bool:
+    sync_attr: object = getattr(cloner, "sync", None)
+    sync_callable = _as_callable(sync_attr)
+    if sync_callable is None:
+        return False
+    try:
+        sync_callable(username, target_dir)
+    except TypeError:
+        sync_callable()
+    return True
+
+
+def _run_cloner(
+    cloner: object,
+    *,
+    username: str,
+    target_dir: str,
+) -> None:
+    if _call_cloner_entrypoint(cloner, "run"):
+        return
+    if _call_cloner_sync(cloner, username=username, target_dir=target_dir):
+        return
+    if _call_cloner_entrypoint(
+        cloner,
+        "main",
+        suppress_exceptions=(RuntimeError, OSError, ValueError),
+    ):
+        return
+    _info("No recognized cloner entrypoint found; skipping run")
+
+
+def synchronize_workspace(  # noqa: PLR0913
+    *,
+    username: str,
+    target_dir: str,
+    shallow: bool,
+    include_forks: bool,
+    force_reclone: bool,
+    ctx: object | None = None,
+) -> x_cls_make_github_clones_x:
+    """Instantiate and run the clones manager for the provided options."""
+
+    cloner = _instantiate_cloner(
+        username=username,
+        target_dir=target_dir,
+        shallow=shallow,
+        include_forks=include_forks,
+        force_reclone=force_reclone,
+        ctx=ctx,
+    )
+    try:
+        _run_cloner(cloner, username=username, target_dir=target_dir)
+    except (
+        RuntimeError,
+        OSError,
+        ValueError,
+        subprocess.SubprocessError,
+    ) as exc:
+        _error("Cloner run failed:", exc)
+    return cloner
+
+
+def resolve_workspace_root(
+    cloner: object,
+    *,
+    default_root: str | os.PathLike[str] | None = None,
+) -> Path:
+    """Derive the workspace root containing cloned repositories.
+
+    The orchestrator previously duplicated this logic; expose it here so the
+    control center can remain lean and delegate to the clones package.
+    """
+
+    def _coerce_path(value: object) -> Path | None:
+        if isinstance(value, Path):
+            return value
+        if isinstance(value, str):
+            return Path(value)
+        if isinstance(value, os.PathLike):  # pragma: no branch - simple guard
+            return Path(os.fspath(cast("os.PathLike[str]", value)))
+        return None
+
+    target_dir_attr: object = getattr(cloner, "target_dir", None)
+    root_candidate = _coerce_path(target_dir_attr)
+    if root_candidate is None:
+        base_default = default_root if default_root is not None else _repo_parent_root()
+        root_candidate = _coerce_path(base_default) or _repo_parent_root()
+
+    root_path = root_candidate
+    if (root_path / ".git").is_dir():
+        parent = root_path.parent
+        with suppress(OSError):
+            for entry in parent.iterdir():
+                if (entry / ".git").is_dir():
+                    root_path = parent
+                    break
+    return root_path
 
 
 def main() -> int:

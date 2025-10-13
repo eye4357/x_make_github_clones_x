@@ -1,9 +1,9 @@
-# x_make_github_clones_x — Lab Notes from Walter White
+# x_make_github_clones_x — Control Room Lab Notes
 
 > "When supply lines fail, the cook fails. This code keeps my GitHub supply chain bulletproof."
 
 ## Manifesto
-x_make_github_clones_x is the automation rig that provisions and refreshes every repository we rely on. It performs label-aware partial syncs, tracks clone health, and reports back to the orchestrator when a repo drifts. It's the muscle keeping our lab inventory accurate on the Road to 0.20.0.
+x_make_github_clones_x is the automation rig that provisions and refreshes every repository we rely on. It performs label-aware partial syncs, tracks clone health, and reports back to the orchestrator when a repo drifts. It's the muscle keeping our lab inventory accurate on the Road to 0.20.1.
 
 ## Ingredients
 - Python 3.11+
@@ -29,8 +29,8 @@ x_make_github_clones_x is the automation rig that provisions and refreshes every
 
 ## Distribution Chain
 - [Changelog](./CHANGELOG.md)
-- [Road to 0.20.0 Control Room](../x_0_make_all_x/Change%20Control/0.20.0/index.md)
-- [Road to 0.20.0 Engineering Proposal](../x_0_make_all_x/Change%20Control/0.20.0/Road%20to%200.20.0%20Engineering%20Proposal%20-%20Walter%20White.md)
+- [Road to 0.20.1 Control Room Ledger](../x_0_make_all_x/Change%20Control/0.20.1/Road%20to%200.20.1%20Engineering%20Proposal.md)
+- [Road to 0.20.1 Engineering Proposal](../x_0_make_all_x/Change%20Control/0.20.1/Road%20to%200.20.1%20Engineering%20Proposal.md)
 
 ## Cross-Linked Intelligence
 - [x_make_common_x](../x_make_common_x/README.md) — shared logging and subprocess utilities harden every clone cycle
