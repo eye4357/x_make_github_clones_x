@@ -771,6 +771,8 @@ def resolve_workspace_root(
         parent = root_path.parent
         with suppress(OSError):
             for entry in parent.iterdir():
+                if entry == root_path:
+                    continue
                 if (entry / ".git").is_dir():
                     root_path = parent
                     break
