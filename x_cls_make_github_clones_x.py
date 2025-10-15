@@ -672,7 +672,6 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
                 if not name:
                     continue
                 repo_path = dest_path / name
-                source_url = repo.clone_url or repo.ssh_url or None
                 repo_started = datetime.now(UTC)
                 git_url = self._repo_clone_url(repo)
                 status = "skipped"
