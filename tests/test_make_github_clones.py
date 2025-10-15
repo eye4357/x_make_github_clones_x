@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from x_make_github_clones_x.x_cls_make_github_clones_x import (
@@ -80,6 +81,7 @@ def test_sync_reports_missing_clone_url(
         fork=False,
     )
     client = x_cls_make_github_clones_x(username="octocat", target_dir=str(tmp_path))
+    client.set_report_base_dir(tmp_path)
 
     def fake_fetch(
         _client: x_cls_make_github_clones_x,
@@ -118,6 +120,14 @@ def test_sync_reports_missing_clone_url(
 
     assert attempts == [(tmp_path / repo_record.name, repo_record.clone_url)]
 
+    report_path = client.last_run_report_path
+    assert report_path is not None
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["exit_code"] == EXPECTED_MISSING_EXIT
+    assert payload["summary"]["missing_clone_url"] == 1
+    repos_entry = payload["repos"][0]
+    assert repos_entry["status"] == "missing_clone_url"
+
 
 def test_sync_success(
     monkeypatch: MonkeyPatch,
@@ -125,6 +135,7 @@ def test_sync_success(
 ) -> None:
     repo_record = _make_repo_record()
     client = x_cls_make_github_clones_x(username="octocat", target_dir=str(tmp_path))
+    client.set_report_base_dir(tmp_path)
 
     def fake_fetch(
         _client: x_cls_make_github_clones_x,
@@ -160,6 +171,12 @@ def test_sync_success(
     assert exit_code == EXPECTED_SUCCESS_EXIT
     assert client.exit_code == EXPECTED_SUCCESS_EXIT
 
+    report_path = client.last_run_report_path
+    assert report_path is not None
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["summary"]["successful"] == 1
+    assert payload["repos"][0]["status"] == "updated"
+
 
 def test_sync_uses_token_when_allowed(
     monkeypatch: MonkeyPatch,
@@ -172,6 +189,7 @@ def test_sync_uses_token_when_allowed(
         target_dir=str(tmp_path),
         token=TEST_TOKEN_VALUE,
     )
+    client.set_report_base_dir(tmp_path)
 
     def fake_fetch(
         _client: x_cls_make_github_clones_x,
@@ -208,3 +226,40 @@ def test_sync_uses_token_when_allowed(
     assert exit_code == EXPECTED_SUCCESS_EXIT
     expected_url = f"https://{TEST_TOKEN_VALUE}@example.invalid/octocat/alpha.git"
     assert urls == [expected_url]
+
+    report_path = client.last_run_report_path
+    assert report_path is not None
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["summary"]["successful"] == 1
+    repo_entry = payload["repos"][0]
+    assert repo_entry["status"] == "updated"
+    assert repo_entry["used_token_clone"] is True
+
+
+def test_sync_records_fetch_error(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    client = x_cls_make_github_clones_x(username="octocat", target_dir=str(tmp_path))
+    client.set_report_base_dir(tmp_path)
+
+    def fake_fetch(
+        _client: x_cls_make_github_clones_x,
+        _username: str | None = None,
+        **_kwargs: object,
+    ) -> list[RepoRecord]:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        x_cls_make_github_clones_x,
+        "fetch_repos",
+        fake_fetch,
+        raising=True,
+    )
+
+    exit_code = client.sync()
+    assert exit_code == 2
+
+    report_path = client.last_run_report_path
+    assert report_path is not None
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["exit_code"] == 2
+    assert payload["summary"]["fetch_error"] == "boom"
+    assert payload["repos"] == []

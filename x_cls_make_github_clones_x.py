@@ -16,16 +16,89 @@ import subprocess
 import sys
 import time
 import urllib.request
+import uuid
+from collections.abc import Mapping, MutableMapping
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, TypeGuard, TypeVar, cast
+from typing import (
+    TYPE_CHECKING,
+    Protocol,
+    TypeGuard,
+    TypeVar,
+    cast,
+)
 from urllib import error as urllib_error
 from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from http.client import HTTPResponse
+
+try:
+    from x_make_common_x import isoformat_timestamp as _common_isoformat_timestamp
+    from x_make_common_x import write_run_report as _common_write_run_report
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    _common_isoformat_timestamp = None
+    _common_write_run_report = None
+
+PACKAGE_ROOT = Path(__file__).resolve().parent
+
+
+def _fallback_isoformat_timestamp(moment: datetime | None = None) -> str:
+    current = (moment or datetime.now(UTC)).replace(microsecond=0)
+    return current.isoformat().replace("+00:00", "Z")
+
+
+def _fallback_write_run_report(
+    tool_slug: str,
+    payload: Mapping[str, object] | MutableMapping[str, object],
+    *,
+    base_dir: Path | str,
+    filename: str | None = None,
+    timestamp: datetime | None = None,
+) -> Path:
+    base_path = Path(base_dir)
+    reports_dir = base_path / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    moment = timestamp or datetime.now(UTC)
+    stamp = moment.strftime("%Y%m%d_%H%M%S")
+    resolved_filename = filename or f"{tool_slug}_run_{stamp}.json"
+    data = dict(payload)
+    data.setdefault("tool", tool_slug)
+    data.setdefault("generated_at", _fallback_isoformat_timestamp(moment))
+    report_path = reports_dir / resolved_filename
+    report_path.write_text(json.dumps(data, indent=2, sort_keys=False), encoding="utf-8")
+    return report_path
+
+
+def _isoformat_timestamp(moment: datetime | None = None) -> str:
+    if _common_isoformat_timestamp is not None:
+        return _common_isoformat_timestamp(moment)
+    return _fallback_isoformat_timestamp(moment)
+
+
+def _write_run_report(
+    payload: Mapping[str, object] | MutableMapping[str, object],
+    *,
+    base_dir: Path | str,
+    timestamp: datetime | None = None,
+) -> Path:
+    moment = timestamp or datetime.now(UTC)
+    if _common_write_run_report is not None:
+        return _common_write_run_report(
+            "x_make_github_clones_x",
+            payload,
+            base_dir=base_dir,
+            timestamp=moment,
+        )
+    return _fallback_write_run_report(
+        "x_make_github_clones_x",
+        payload,
+        base_dir=base_dir,
+        timestamp=moment,
+    )
 
 JsonDict = dict[str, object]
 
@@ -192,6 +265,24 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
         self.token = token or os.environ.get(self.TOKEN_ENV_VAR)
         self.include_private = include_private
         self.exit_code: int | None = None
+        self._last_run_report_path: Path | None = None
+        self._latest_run_report: dict[str, object] | None = None
+        self._reports_base_dir: Path = PACKAGE_ROOT
+
+    @property
+    def last_run_report_path(self) -> Path | None:
+        return self._last_run_report_path
+
+    def get_latest_run_report(self) -> dict[str, object] | None:
+        if self._latest_run_report is None:
+            return None
+        try:
+            return json.loads(json.dumps(self._latest_run_report))
+        except (TypeError, ValueError):
+            return None
+
+    def set_report_base_dir(self, base_dir: Path | str) -> None:
+        self._reports_base_dir = Path(base_dir)
 
     def _request_json(
         self, url: str, headers: dict[str, str] | None = None
@@ -547,6 +638,12 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
             Path(dest_candidate) if dest_candidate else _repo_parent_root()
         )
         dest_path.mkdir(parents=True, exist_ok=True)
+        run_id = uuid.uuid4().hex
+        started_at = datetime.now(UTC)
+        repos: list[RepoRecord] = []
+        fetch_error: str | None = None
+        exit_code = 0
+
         try:
             repos = self.fetch_repos(username=username)
         except (
@@ -555,26 +652,121 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
             OSError,
             ValueError,
         ) as exc:
+            fetch_error = str(exc).strip() or repr(exc)
             _error("failed to fetch repo list:", exc)
-            return 2
+            exit_code = 2
+        else:
+            if self.names is not None:
+                name_set = {name for name in self.names if name}
+                repos = [repo for repo in repos if repo.matches(name_set)]
 
-        if self.names is not None:
-            name_set = {name for name in self.names if name}
-            repos = [repo for repo in repos if repo.matches(name_set)]
+        repo_entries: list[dict[str, object]] = []
+        missing_clone_names: list[str] = []
+        failed_repo_names: list[str] = []
+        successful_names: list[str] = []
+        used_token_clone = bool(self.token and self.allow_token_clone)
 
-        exit_code = 0
-        for repo in repos:
-            name = repo.name
-            if not name:
-                continue
-            repo_path = dest_path / name
-            git_url = self._repo_clone_url(repo)
-            if not git_url:
-                _error(f"missing clone URL for {name}")
-                exit_code = 3
-                continue
-            if not self._attempt_update(repo_path, git_url):
-                exit_code = 3
+        if fetch_error is None:
+            for repo in repos:
+                name = repo.name
+                if not name:
+                    continue
+                repo_path = dest_path / name
+                source_url = repo.clone_url or repo.ssh_url or None
+                repo_started = datetime.now(UTC)
+                git_url = self._repo_clone_url(repo)
+                status = "skipped"
+                error_message: str | None = None
+
+                if not git_url:
+                    _error(f"missing clone URL for {name}")
+                    exit_code = 3
+                    status = "missing_clone_url"
+                    missing_clone_names.append(name)
+                else:
+                    success = self._attempt_update(repo_path, git_url)
+                    if success:
+                        status = "updated"
+                        successful_names.append(name)
+                    else:
+                        status = "failed"
+                        failed_repo_names.append(name)
+                        exit_code = 3
+                        error_message = "clone_or_update_failed"
+
+                repo_completed = datetime.now(UTC)
+                duration = (repo_completed - repo_started).total_seconds()
+                repo_entry: dict[str, object] = {
+                    "name": name,
+                    "full_name": repo.full_name,
+                    "target_path": str(repo_path),
+                    "source_https": repo.clone_url or None,
+                    "source_ssh": repo.ssh_url or None,
+                    "used_token_clone": used_token_clone and bool(repo.clone_url),
+                    "status": status,
+                    "duration_seconds": round(duration, 3),
+                }
+                if error_message:
+                    repo_entry["error"] = error_message
+                repo_entries.append(repo_entry)
+
+        completed_at = datetime.now(UTC)
+        summary: dict[str, object] = {
+            "total_repos": len(repos),
+            "successful": len(successful_names),
+            "missing_clone_url": len(missing_clone_names),
+            "failed_updates": len(failed_repo_names),
+            "fetch_error": fetch_error,
+        }
+        if missing_clone_names:
+            summary["missing_repos"] = sorted(missing_clone_names)
+        if failed_repo_names:
+            summary["failed_repos"] = sorted(failed_repo_names)
+
+        invocation: dict[str, object] = {
+            "username": username,
+            "target_dir": str(dest_path),
+            "shallow": self.shallow,
+            "include_forks": self.include_forks,
+            "force_reclone": self.force_reclone,
+            "names_filter": list(self.names) if self.names is not None else None,
+            "include_private": self.include_private,
+            "token_provided": bool(self.token),
+            "allow_token_clone": self.allow_token_clone,
+        }
+
+        payload: dict[str, object] = {
+            "schema_version": "x_make_github_clones_x.run/1.0",
+            "run_id": run_id,
+            "started_at": _isoformat_timestamp(started_at),
+            "completed_at": _isoformat_timestamp(completed_at),
+            "duration_seconds": round((completed_at - started_at).total_seconds(), 3),
+            "invocation": invocation,
+            "summary": summary,
+            "repos": repo_entries,
+            "exit_code": exit_code,
+        }
+
+        try:
+            payload_copy = json.loads(json.dumps(payload))
+        except (TypeError, ValueError):
+            payload_copy = payload
+
+        self._latest_run_report = payload_copy
+
+        self._last_run_report_path = None
+        report_path: Path | None = None
+        try:
+            report_path = _write_run_report(
+                payload,
+                base_dir=self._reports_base_dir,
+                timestamp=completed_at,
+            )
+        except (OSError, ValueError, TypeError) as exc:
+            _error("failed to write clones run report:", exc)
+        else:
+            self._last_run_report_path = report_path
+
         self.exit_code = exit_code
         return exit_code
 
