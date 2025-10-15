@@ -2,6 +2,10 @@
 
 All notable changes to x_make_github_clones_x live here. We align with [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning, because even clone jobs need discipline.
 
+## [0.20.3] - 2025-10-14
+### Changed
+- README and operations brief updated for the Road to 0.20.3 release, noting the JSON board pivot and clone metadata alignment.
+
 ## [0.20.2] - 2025-10-14
 ### Changed
 - Reissued the documentation for the Road to 0.20.2 release, detailing clone cadence expectations and updated control-room links.
