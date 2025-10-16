@@ -3,10 +3,10 @@
 > "When supply lines fail, the cook fails. This code keeps my GitHub supply chain bulletproof."
 
 ## Manifesto
-x_make_github_clones_x is the automation rig that provisions and refreshes every repository we rely on. It performs label-aware partial syncs, tracks clone health, and reports back to the orchestrator when a repo drifts. It's the muscle keeping our lab inventory accurate on the Road to 0.20.3.
+x_make_github_clones_x is the automation rig that provisions and refreshes every repository we rely on. It performs label-aware partial syncs, tracks clone health, and reports back to the orchestrator when a repo drifts. It's the muscle keeping our lab inventory accurate on the Road to 0.20.4.
 
-## 0.20.3 Command Sequence
-Version 0.20.3 aligns clone manifests with the JSON board pivot. Every sync now feeds fresh repository metadata into the control room so the new visitor telemetry has exact baselines to compare against.
+## 0.20.4 Command Sequence
+Version 0.20.4 feeds the Repository Synchronization column with hard evidence. Clone runs now stamp their JSON reports into `make_all_summary.json`, exposing per-repo status, missing remotes, and retry logs so the Kanban board calls out drift the moment it happens.
 
 ## Ingredients
 - Python 3.11+
@@ -32,7 +32,7 @@ Version 0.20.3 aligns clone manifests with the JSON board pivot. Every sync now 
 
 ## Distribution Chain
 - [Changelog](./CHANGELOG.md)
-- [Road to 0.20.3 Control Room Ledger](../x_0_make_all_x/Change%20Control/0.20.3/Road%20to%200.20.3%20Engineering%20Proposal.md)
+- [Road to 0.20.4 Engineering Proposal](../x_0_make_all_x/Change%20Control/0.20.4/Road%20to%200.20.4%20Engineering%20Proposal.md)
 - [Road to 0.20.3 Engineering Proposal](../x_0_make_all_x/Change%20Control/0.20.3/Road%20to%200.20.3%20Engineering%20Proposal.md)
 
 ## Cross-Linked Intelligence

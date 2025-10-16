@@ -9,6 +9,7 @@ shared packages.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import shutil
@@ -17,31 +18,47 @@ import sys
 import time
 import urllib.request
 import uuid
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Protocol,
-    TypeGuard,
-    TypeVar,
-    cast,
-)
+from typing import TYPE_CHECKING, Protocol, TypeGuard, TypeVar, cast
 from urllib import error as urllib_error
 from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping, MutableMapping
     from http.client import HTTPResponse
 
+IsoformatTimestamp = Callable[[datetime | None], str]
+
+
+class _WriteRunReport(Protocol):
+    def __call__(  # noqa: PLR0913
+        self,
+        tool_slug: str,
+        payload: Mapping[str, object] | MutableMapping[str, object],
+        *,
+        base_dir: Path | str | None = None,
+        filename: str | None = None,
+        timestamp: datetime | None = None,
+        reports_name: str = "reports",
+    ) -> Path: ...
+
+
+_common_isoformat_timestamp: IsoformatTimestamp | None
+_common_write_run_report: _WriteRunReport | None
+
 try:
-    from x_make_common_x import isoformat_timestamp as _common_isoformat_timestamp
-    from x_make_common_x import write_run_report as _common_write_run_report
+    from x_make_common_x import isoformat_timestamp as _imported_isoformat_timestamp
+    from x_make_common_x import write_run_report as _imported_write_run_report
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
     _common_isoformat_timestamp = None
     _common_write_run_report = None
+else:
+    _common_isoformat_timestamp = _imported_isoformat_timestamp
+    _common_write_run_report = _imported_write_run_report
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 
@@ -69,7 +86,10 @@ def _fallback_write_run_report(
     data.setdefault("tool", tool_slug)
     data.setdefault("generated_at", _fallback_isoformat_timestamp(moment))
     report_path = reports_dir / resolved_filename
-    report_path.write_text(json.dumps(data, indent=2, sort_keys=False), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(data, indent=2, sort_keys=False),
+        encoding="utf-8",
+    )
     return report_path
 
 
@@ -99,6 +119,7 @@ def _write_run_report(
         base_dir=base_dir,
         timestamp=moment,
     )
+
 
 JsonDict = dict[str, object]
 
@@ -274,11 +295,12 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
         return self._last_run_report_path
 
     def get_latest_run_report(self) -> dict[str, object] | None:
-        if self._latest_run_report is None:
+        latest = self._latest_run_report
+        if latest is None:
             return None
         try:
-            return json.loads(json.dumps(self._latest_run_report))
-        except (TypeError, ValueError):
+            return copy.deepcopy(latest)
+        except TypeError:
             return None
 
     def set_report_base_dir(self, base_dir: Path | str) -> None:
@@ -631,7 +653,9 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
             self.token, allow_token_clone=self.allow_token_clone
         )
 
-    def sync(self, username: str | None = None, dest: str | None = None) -> int:
+    def sync(  # noqa: C901, PLR0912, PLR0915
+        self, username: str | None = None, dest: str | None = None
+    ) -> int:
         username = username or self.username
         dest_candidate = dest or self.target_dir or self.DEFAULT_TARGET_DIR
         dest_path: Path = (
@@ -747,8 +771,8 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
         }
 
         try:
-            payload_copy = json.loads(json.dumps(payload))
-        except (TypeError, ValueError):
+            payload_copy = copy.deepcopy(payload)
+        except TypeError:
             payload_copy = payload
 
         self._latest_run_report = payload_copy

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from x_make_github_clones_x.x_cls_make_github_clones_x import (
     RepoRecord,
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 EXPECTED_MISSING_EXIT = 3
 EXPECTED_SUCCESS_EXIT = 0
+EXPECTED_FETCH_ERROR_EXIT = 2
 TEST_TOKEN_VALUE = "secrettoken"  # noqa: S105 - deterministic test credential
 
 
@@ -29,6 +30,29 @@ def _make_repo_record() -> RepoRecord:
         ssh_url="git@example.invalid:octocat/alpha.git",
         fork=False,
     )
+
+
+def _load_report(path: Path) -> dict[str, object]:
+    raw: object = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(raw, dict)
+    return cast("dict[str, object]", raw)
+
+
+def _get_dict(payload: dict[str, object], key: str) -> dict[str, object]:
+    value = payload[key]
+    assert isinstance(value, dict)
+    return cast("dict[str, object]", value)
+
+
+def _get_dict_list(payload: dict[str, object], key: str) -> list[dict[str, object]]:
+    value = payload[key]
+    assert isinstance(value, list)
+    dict_entries: list[dict[str, object]] = []
+    for entry in value:
+        assert isinstance(entry, dict)
+        dict_entry = cast("dict[str, object]", entry)
+        dict_entries.append(dict_entry)
+    return dict_entries
 
 
 def test_fetch_repos_filters_forks_and_names(monkeypatch: MonkeyPatch) -> None:
@@ -122,11 +146,22 @@ def test_sync_reports_missing_clone_url(
 
     report_path = client.last_run_report_path
     assert report_path is not None
-    payload = json.loads(report_path.read_text(encoding="utf-8"))
-    assert payload["exit_code"] == EXPECTED_MISSING_EXIT
-    assert payload["summary"]["missing_clone_url"] == 1
-    repos_entry = payload["repos"][0]
-    assert repos_entry["status"] == "missing_clone_url"
+    payload = _load_report(report_path)
+
+    exit_value = payload.get("exit_code")
+    assert isinstance(exit_value, int)
+    assert exit_value == EXPECTED_MISSING_EXIT
+
+    summary = _get_dict(payload, "summary")
+    missing_value = summary.get("missing_clone_url")
+    assert isinstance(missing_value, int)
+    assert missing_value == 1
+
+    repos_entries = _get_dict_list(payload, "repos")
+    first_repo = repos_entries[0]
+    status_value = first_repo.get("status")
+    assert isinstance(status_value, str)
+    assert status_value == "missing_clone_url"
 
 
 def test_sync_success(
@@ -173,9 +208,17 @@ def test_sync_success(
 
     report_path = client.last_run_report_path
     assert report_path is not None
-    payload = json.loads(report_path.read_text(encoding="utf-8"))
-    assert payload["summary"]["successful"] == 1
-    assert payload["repos"][0]["status"] == "updated"
+    payload = _load_report(report_path)
+
+    summary = _get_dict(payload, "summary")
+    successful_value = summary.get("successful")
+    assert isinstance(successful_value, int)
+    assert successful_value == 1
+
+    repos_entries = _get_dict_list(payload, "repos")
+    status_value = repos_entries[0].get("status")
+    assert isinstance(status_value, str)
+    assert status_value == "updated"
 
 
 def test_sync_uses_token_when_allowed(
@@ -229,11 +272,21 @@ def test_sync_uses_token_when_allowed(
 
     report_path = client.last_run_report_path
     assert report_path is not None
-    payload = json.loads(report_path.read_text(encoding="utf-8"))
-    assert payload["summary"]["successful"] == 1
-    repo_entry = payload["repos"][0]
-    assert repo_entry["status"] == "updated"
-    assert repo_entry["used_token_clone"] is True
+    payload = _load_report(report_path)
+
+    summary = _get_dict(payload, "summary")
+    successful_value = summary.get("successful")
+    assert isinstance(successful_value, int)
+    assert successful_value == 1
+
+    repos_entries = _get_dict_list(payload, "repos")
+    repo_entry = repos_entries[0]
+    status_value = repo_entry.get("status")
+    assert isinstance(status_value, str)
+    assert status_value == "updated"
+    used_token_value = repo_entry.get("used_token_clone")
+    assert isinstance(used_token_value, bool)
+    assert used_token_value is True
 
 
 def test_sync_records_fetch_error(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
@@ -245,7 +298,8 @@ def test_sync_records_fetch_error(monkeypatch: MonkeyPatch, tmp_path: Path) -> N
         _username: str | None = None,
         **_kwargs: object,
     ) -> list[RepoRecord]:
-        raise RuntimeError("boom")
+        message = "boom"
+        raise RuntimeError(message)
 
     monkeypatch.setattr(
         x_cls_make_github_clones_x,
@@ -255,11 +309,21 @@ def test_sync_records_fetch_error(monkeypatch: MonkeyPatch, tmp_path: Path) -> N
     )
 
     exit_code = client.sync()
-    assert exit_code == 2
+    assert exit_code == EXPECTED_FETCH_ERROR_EXIT
 
     report_path = client.last_run_report_path
     assert report_path is not None
-    payload = json.loads(report_path.read_text(encoding="utf-8"))
-    assert payload["exit_code"] == 2
-    assert payload["summary"]["fetch_error"] == "boom"
-    assert payload["repos"] == []
+    payload = _load_report(report_path)
+
+    exit_value = payload.get("exit_code")
+    assert isinstance(exit_value, int)
+    assert exit_value == EXPECTED_FETCH_ERROR_EXIT
+
+    summary = _get_dict(payload, "summary")
+    fetch_error_value = summary.get("fetch_error")
+    assert isinstance(fetch_error_value, str)
+    assert fetch_error_value == "boom"
+
+    repos_entries = payload.get("repos")
+    assert isinstance(repos_entries, list)
+    assert repos_entries == []
