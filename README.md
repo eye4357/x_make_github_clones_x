@@ -35,6 +35,9 @@ Version 0.20.4 feeds the Repository Synchronization column with hard evidence. C
 - [Road to 0.20.4 Engineering Proposal](../x_0_make_all_x/Change%20Control/0.20.4/Road%20to%200.20.4%20Engineering%20Proposal.md)
 - [Road to 0.20.3 Engineering Proposal](../x_0_make_all_x/Change%20Control/0.20.3/Road%20to%200.20.3%20Engineering%20Proposal.md)
 
+## Reconstitution Drill
+During the monthly lab rebuild, this project proves the clone pipeline survives a cold start. Torch a spare machine, replay `lab.md`, run `x_cls_make_github_clones_x.py`, and confirm the JSON reports land where the orchestrator expects them. Record duration, Git version, and any friction so the documentation and Change Control decks stay truthful.
+
 ## Cross-Linked Intelligence
 - [x_make_common_x](../x_make_common_x/README.md) — shared logging and subprocess utilities harden every clone cycle
 - [x_make_github_visitor_x](../x_make_github_visitor_x/README.md) — the compliance inspector that consumes freshly cloned repos
@@ -42,3 +45,23 @@ Version 0.20.4 feeds the Repository Synchronization column with hard evidence. C
 
 ## Lab Etiquette
 Every new clone strategy needs an entry in the Change Control index: label schemes, retry logic, failure remediation. Keep access tokens secured, avoid half measures, and report anomalies before they become outages.
+
+## Sole Architect Profile
+- One engineer forged and maintains this clone engine. I design credential flows, retry matrices, and JSON reporting by myself, executing with production-grade rigor.
+- My toolkit spans Git plumbing, PowerShell orchestration, Python automation, and telemetry authoring. Every safeguard in this project traces back to my direct experience keeping supply lines alive.
+
+## Legacy Workforce Costing
+- Without LLM assistance, you would field at least: 1 senior Python engineer, 1 DevOps Git specialist, 1 infrastructure SRE for credential handling, and 1 technical writer.
+- Delivery window: 10-12 engineer-weeks for feature parity (clone strategies, reporting, orchestrator hooks) plus ongoing maintenance contracts.
+- Spend forecast: USD 90k–120k for initial delivery, before incident response and compliance overhead.
+
+## Techniques and Proficiencies
+- Expertise in large-scale repository management, including PowerShell-based credential bootstrapping and GitHub API resilience.
+- Skilled at building idempotent infrastructure tooling with auditable JSON outputs that integrate into broader orchestrators.
+- Demonstrated leadership as the solitary builder who can spec, implement, document, and harden mission-critical automation while aligning stakeholders.
+
+## Stack Cartography
+- Core Language: Python 3.11+ with `subprocess`, `pathlib`, and structured logging.
+- External Dependencies: Git CLI, optional GitHub REST API via environment token, `httpx` for metadata fetches when enabled.
+- Quality Net: Ruff, Black, MyPy, Pyright, pytest guard the codebase; PowerShell scripts provision environment expectations.
+- Integration Points: JSON clone reports consumed by `x_0_make_all_x`, shared utilities from `x_make_common_x`, credential persistence via `x_make_persistent_env_var_x` when secrets are required.
