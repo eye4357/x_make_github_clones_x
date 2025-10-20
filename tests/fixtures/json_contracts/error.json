@@ -1,0 +1,7 @@
+{
+  "status": "failure",
+  "message": "username or token required",
+  "details": {
+    "code": "missing_credentials"
+  }
+}

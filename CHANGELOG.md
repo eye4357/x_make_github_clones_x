@@ -1,6 +1,6 @@
-# Changelog — Control Room Production Log
+# x_make_github_clones_x — Production Ledger
 
-All notable changes to x_make_github_clones_x live here. We align with [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning, because even clone jobs need discipline.
+I record every change to this clone engine here. Entries adhere to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning so audits can reconstruct the exact state of the supply line at any point in time.
 
 ## [0.20.4] - 2025-10-15
 ### Changed

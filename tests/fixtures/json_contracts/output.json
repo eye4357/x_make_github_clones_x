@@ -1,0 +1,39 @@
+{
+  "status": "success",
+  "schema_version": "x_make_github_clones_x.run/1.0",
+  "run_id": "1234567890abcdef1234567890abcdef",
+  "started_at": "2024-03-01T10:00:00Z",
+  "completed_at": "2024-03-01T10:01:00Z",
+  "duration_seconds": 60.0,
+  "invocation": {
+    "username": "octocat",
+    "target_dir": "C:/tmp/clones",
+    "shallow": false,
+    "include_forks": true,
+    "force_reclone": false,
+    "names_filter": null,
+    "include_private": true,
+    "token_provided": false,
+    "allow_token_clone": false
+  },
+  "summary": {
+    "total_repos": 1,
+    "successful": 1,
+    "missing_clone_url": 0,
+    "failed_updates": 0,
+    "fetch_error": null
+  },
+  "repos": [
+    {
+      "name": "demo",
+      "full_name": "octocat/demo",
+      "target_path": "C:/tmp/clones/demo",
+      "source_https": "https://github.com/octocat/demo.git",
+      "source_ssh": null,
+      "used_token_clone": false,
+      "status": "updated",
+      "duration_seconds": 1.23
+    }
+  ],
+  "exit_code": 0
+}

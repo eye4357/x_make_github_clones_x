@@ -9,6 +9,7 @@ shared packages.
 
 from __future__ import annotations
 
+import argparse
 import copy
 import json
 import os
@@ -18,7 +19,7 @@ import sys
 import time
 import urllib.request
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -30,6 +31,15 @@ from urllib.parse import urlsplit
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, MutableMapping
     from http.client import HTTPResponse
+
+from jsonschema import ValidationError
+from x_make_common_x.json_contracts import validate_payload
+
+from x_make_github_clones_x.json_contracts import (
+    ERROR_SCHEMA,
+    INPUT_SCHEMA,
+    OUTPUT_SCHEMA,
+)
 
 IsoformatTimestamp = Callable[[datetime | None], str]
 
@@ -137,6 +147,9 @@ def _json_loads(payload: str) -> object:
 _ALLOWED_URL_SCHEMES = {"http", "https"}
 
 
+SCHEMA_VERSION = "x_make_github_clones_x.run/1.0"
+
+
 def _urlopen(request: urllib.request.Request) -> HTTPResponse:
     scheme = urlsplit(request.full_url).scheme.lower()
     if scheme not in _ALLOWED_URL_SCHEMES:
@@ -207,6 +220,64 @@ def _info(*args: object) -> None:
 
 def _error(*args: object) -> None:
     print(" ".join(str(arg) for arg in args), file=sys.stderr)
+
+
+def _failure_payload(
+    message: str,
+    *,
+    details: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {"status": "failure", "message": message}
+    if details:
+        payload["details"] = dict(details)
+    try:
+        validate_payload(payload, ERROR_SCHEMA)
+    except ValidationError:
+        pass
+    return payload
+
+
+def _coerce_bool(value: object, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes"}:
+            return True
+        if lowered in {"0", "false", "no"}:
+            return False
+    return default
+
+
+def _extract_names(raw: object) -> list[str] | str | None:
+    if isinstance(raw, list):
+        cleaned = [entry.strip() for entry in raw if isinstance(entry, str) and entry.strip()]
+        return cleaned if cleaned else None
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return None
+
+
+def _apply_allow_token_clone_env(value: object) -> tuple[str | None, bool]:
+    env_name = x_cls_make_github_clones_x.ALLOW_TOKEN_CLONE_ENV
+    original = os.environ.get(env_name)
+    original_present = env_name in os.environ
+    if isinstance(value, bool):
+        os.environ[env_name] = "1" if value else "0"
+    elif isinstance(value, str):
+        os.environ[env_name] = "1" if _coerce_bool(value, False) else "0"
+    return original, original_present
+
+
+def _restore_allow_token_clone_env(original: str | None, present: bool) -> None:
+    env_name = x_cls_make_github_clones_x.ALLOW_TOKEN_CLONE_ENV
+    if present:
+        if original is not None:
+            os.environ[env_name] = original
+        else:
+            os.environ.pop(env_name, None)
+    else:
+        os.environ.pop(env_name, None)
 
 
 class BaseMake:
@@ -759,7 +830,7 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
         }
 
         payload: dict[str, object] = {
-            "schema_version": "x_make_github_clones_x.run/1.0",
+            "schema_version": SCHEMA_VERSION,
             "run_id": run_id,
             "started_at": _isoformat_timestamp(started_at),
             "completed_at": _isoformat_timestamp(completed_at),
@@ -994,6 +1065,100 @@ def resolve_workspace_root(
     return root_path
 
 
+def main_json(payload: Mapping[str, object], *, ctx: object | None = None) -> dict[str, object]:
+    try:
+        validate_payload(payload, INPUT_SCHEMA)
+    except ValidationError as exc:
+        return _failure_payload(
+            "input payload failed validation",
+            details={
+                "error": exc.message,
+                "path": [str(part) for part in exc.path],
+                "schema_path": [str(part) for part in exc.schema_path],
+            },
+        )
+
+    parameters_obj = payload.get("parameters", {})
+    parameters = cast("Mapping[str, object]", parameters_obj)
+
+    username_obj = parameters.get("username")
+    username = username_obj if isinstance(username_obj, str) and username_obj else None
+
+    target_dir_obj = parameters.get("target_dir")
+    if isinstance(target_dir_obj, str) and target_dir_obj:
+        target_dir_str = target_dir_obj
+    else:
+        target_dir_str = (
+            x_cls_make_github_clones_x.DEFAULT_TARGET_DIR or str(_repo_parent_root())
+        )
+    target_dir_path = Path(target_dir_str)
+
+    shallow = _coerce_bool(parameters.get("shallow"), False)
+    include_forks = _coerce_bool(parameters.get("include_forks"), False)
+    force_reclone = _coerce_bool(parameters.get("force_reclone"), False)
+    include_private = _coerce_bool(parameters.get("include_private"), True)
+    names_param = _extract_names(parameters.get("names"))
+
+    token_obj = parameters.get("token")
+    token = token_obj if isinstance(token_obj, str) and token_obj else None
+
+    allow_token_value = parameters.get("allow_token_clone")
+    allow_override = "allow_token_clone" in parameters
+    original_env_value: str | None = None
+    original_env_present = False
+    if allow_override:
+        original_env_value, original_env_present = _apply_allow_token_clone_env(
+            allow_token_value
+        )
+
+    try:
+        target_dir_path.mkdir(parents=True, exist_ok=True)
+        cloner = x_cls_make_github_clones_x(
+            username=username,
+            target_dir=str(target_dir_path),
+            shallow=shallow,
+            include_forks=include_forks,
+            force_reclone=force_reclone,
+            names=names_param,
+            token=token,
+            include_private=include_private,
+            ctx=ctx,
+        )
+        cloner.set_report_base_dir(target_dir_path)
+        exit_code = cloner.sync(username=username, dest=str(target_dir_path))
+        run_report = cloner.get_latest_run_report()
+        if run_report is None:
+            return _failure_payload(
+                "cloner run did not produce a report",
+                details={"exit_code": exit_code},
+            )
+        result_payload = copy.deepcopy(run_report)
+        result_payload["status"] = "success"
+        result_payload.setdefault("schema_version", SCHEMA_VERSION)
+    except Exception as exc:  # noqa: BLE001
+        return _failure_payload(
+            "unexpected error while running clones manager",
+            details={"error": str(exc)},
+        )
+    finally:
+        if allow_override:
+            _restore_allow_token_clone_env(original_env_value, original_env_present)
+
+    try:
+        validate_payload(result_payload, OUTPUT_SCHEMA)
+    except ValidationError as exc:
+        return _failure_payload(
+            "generated output failed schema validation",
+            details={
+                "error": exc.message,
+                "path": [str(part) for part in exc.path],
+                "schema_path": [str(part) for part in exc.schema_path],
+            },
+        )
+
+    return result_payload
+
+
 def main() -> int:
     username = os.environ.get("X_GH_USER")
     if not username:
@@ -1003,5 +1168,46 @@ def main() -> int:
     return m.sync()
 
 
+def _load_json_payload(file_path: str | None) -> Mapping[str, object]:
+    if file_path:
+        with Path(file_path).open("r", encoding="utf-8") as handle:
+            return cast("Mapping[str, object]", json.load(handle))
+    return cast("Mapping[str, object]", json.load(sys.stdin))
+
+
+def _run_json_cli(args: Sequence[str]) -> None:
+    parser = argparse.ArgumentParser(
+        description="x_make_github_clones_x JSON runner"
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Read JSON payload from stdin",
+    )
+    parser.add_argument(
+        "--json-file",
+        type=str,
+        help="Path to JSON payload file",
+    )
+    parsed = parser.parse_args(args)
+
+    if not (parsed.json or parsed.json_file):
+        parser.error("JSON input required. Use --json for stdin or --json-file <path>.")
+
+    payload = _load_json_payload(parsed.json_file if parsed.json_file else None)
+    result = main_json(payload)
+    json.dump(result, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+
+
+__all__ = [
+    "RepoRecord",
+    "main_json",
+    "resolve_workspace_root",
+    "synchronize_workspace",
+    "x_cls_make_github_clones_x",
+]
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    _run_json_cli(sys.argv[1:])

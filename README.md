@@ -1,67 +1,64 @@
-# x_make_github_clones_x — Control Room Lab Notes
+# x_make_github_clones_x — Supply Chain Doctrine
 
-> "When supply lines fail, the cook fails. This code keeps my GitHub supply chain bulletproof."
+I wrote this rig to keep the lab's repository inventory exact. It discovers, clones, and refreshes every GitHub dependency on command, logs each outcome as JSON evidence, and reports upstream when a repo drifts. No supply line, no experiment.
 
-## Manifesto
-x_make_github_clones_x is the automation rig that provisions and refreshes every repository we rely on. It performs label-aware partial syncs, tracks clone health, and reports back to the orchestrator when a repo drifts. It's the muscle keeping our lab inventory accurate on the Road to 0.20.4.
+## Mission Log
+- Mirror designated GitHub repositories using label-aware strategies so we do not waste disk or bandwidth.
+- Validate clone health, branch parity, and remote availability.
+- File JSON summaries the orchestrator folds into `make_all_summary.json` for the Kanban board.
+- Surface drift, retries, and credential failures immediately—silence is unacceptable.
 
-## 0.20.4 Command Sequence
-Version 0.20.4 feeds the Repository Synchronization column with hard evidence. Clone runs now stamp their JSON reports into `make_all_summary.json`, exposing per-repo status, missing remotes, and retry logs so the Kanban board calls out drift the moment it happens.
+## Instrumentation
+- Python 3.11 or newer.
+- Git CLI in the operator's `PATH`.
+- Optional GitHub token provided via environment variables when private repos are in scope.
+- Ruff, Black, MyPy, and Pyright when you intend to run the QA gauntlet.
 
-## Ingredients
-- Python 3.11+
-- Git CLI available on your PATH
-- Ruff, Black, MyPy, and Pyright for code hardening
-- Optional: GitHub token configured via environment variables for authenticated operations
-
-## Cook Instructions
+## Operating Procedure
 1. `python -m venv .venv`
-2. `.\.venv\Scripts\Activate.ps1`
+2. `\.venv\Scripts\Activate.ps1`
 3. `python -m pip install --upgrade pip`
 4. `pip install -r requirements.txt`
-5. `python x_cls_make_github_clones_x.py --help` to review clone strategies before you sync
+5. `python x_cls_make_github_clones_x.py --help` to inspect switches.
+6. Execute the desired command variation (sync, dry-run, targeted labels) and archive the generated report.
 
-## Quality Assurance
+Clone runs deposit their evidence under `reports/` and update `make_all_summary.json` so the command center reflects the truth without reprocessing logs.
+
+## Evidence Checks
 | Check | Command |
 | --- | --- |
-| Formatting sweep | `python -m black .`
-| Lint interrogation | `python -m ruff check .`
-| Type audit | `python -m mypy .`
-| Static contract scan | `python -m pyright`
-| Functional verification | `pytest`
+| Formatting sweep | `python -m black .` |
+| Lint interrogation | `python -m ruff check .` |
+| Type audit | `python -m mypy .` |
+| Static contract scan | `python -m pyright` |
+| Functional verification | `pytest` |
 
-## Distribution Chain
+## System Linkage
 - [Changelog](./CHANGELOG.md)
 - [Road to 0.20.4 Engineering Proposal](../x_0_make_all_x/Change%20Control/0.20.4/Road%20to%200.20.4%20Engineering%20Proposal.md)
 - [Road to 0.20.3 Engineering Proposal](../x_0_make_all_x/Change%20Control/0.20.3/Road%20to%200.20.3%20Engineering%20Proposal.md)
 
 ## Reconstitution Drill
-During the monthly lab rebuild, this project proves the clone pipeline survives a cold start. Torch a spare machine, replay `lab.md`, run `x_cls_make_github_clones_x.py`, and confirm the JSON reports land where the orchestrator expects them. Record duration, Git version, and any friction so the documentation and Change Control decks stay truthful.
+During the monthly rebuild I wipe a machine, replay `LAB_FROM_SCRATCH.md`, and run this clone driver. Git version, elapsed minutes, error counts, and the resulting JSON all get logged. If the orchestrator cannot hydrate from those artefacts, the defect is mine to eliminate before the window closes.
 
-## Cross-Linked Intelligence
-- [x_make_common_x](../x_make_common_x/README.md) — shared logging and subprocess utilities harden every clone cycle
-- [x_make_github_visitor_x](../x_make_github_visitor_x/README.md) — the compliance inspector that consumes freshly cloned repos
-- [x_0_make_all_x](../x_0_make_all_x/README.md) — orchestrates clone waves during release runs
+## Cross-Referenced Assets
+- [x_make_common_x](../x_make_common_x/README.md) — shared logging and subprocess scaffolding.
+- [x_make_github_visitor_x](../x_make_github_visitor_x/README.md) — consumes freshly cloned repos for compliance sweeps.
+- [x_0_make_all_x](../x_0_make_all_x/README.md) — orchestrates clone waves across the release pipeline.
 
-## Lab Etiquette
-Every new clone strategy needs an entry in the Change Control index: label schemes, retry logic, failure remediation. Keep access tokens secured, avoid half measures, and report anomalies before they become outages.
+## Conduct Code
+Document every new clone tactic in Change Control. Guard credentials, rotate tokens, and capture anomalies before they cascade into the supply chain. This project tolerates zero shadow steps.
 
-## Sole Architect Profile
-- One engineer forged and maintains this clone engine. I design credential flows, retry matrices, and JSON reporting by myself, executing with production-grade rigor.
-- My toolkit spans Git plumbing, PowerShell orchestration, Python automation, and telemetry authoring. Every safeguard in this project traces back to my direct experience keeping supply lines alive.
+## Sole Architect's Note
+I alone designed and maintain these clone circuits: credential choreography, retry matrices, JSON reporting, and orchestrator integration. The safeguards derive from the scars of production outages I refuse to repeat.
 
-## Legacy Workforce Costing
-- Without LLM assistance, you would field at least: 1 senior Python engineer, 1 DevOps Git specialist, 1 infrastructure SRE for credential handling, and 1 technical writer.
-- Delivery window: 10-12 engineer-weeks for feature parity (clone strategies, reporting, orchestrator hooks) plus ongoing maintenance contracts.
-- Spend forecast: USD 90k–120k for initial delivery, before incident response and compliance overhead.
+## Legacy Staffing Estimate
+- Without LLM support, replication demands: 1 senior Python engineer, 1 DevOps Git specialist, 1 SRE for credential management, and 1 technical writer.
+- Timeline: 10–12 engineer-weeks to replicate functionality and documentation at this fidelity.
+- Cost band: USD 90k–120k before you budget for operational overhead.
 
-## Techniques and Proficiencies
-- Expertise in large-scale repository management, including PowerShell-based credential bootstrapping and GitHub API resilience.
-- Skilled at building idempotent infrastructure tooling with auditable JSON outputs that integrate into broader orchestrators.
-- Demonstrated leadership as the solitary builder who can spec, implement, document, and harden mission-critical automation while aligning stakeholders.
-
-## Stack Cartography
+## Technical Footprint
 - Core Language: Python 3.11+ with `subprocess`, `pathlib`, and structured logging.
-- External Dependencies: Git CLI, optional GitHub REST API via environment token, `httpx` for metadata fetches when enabled.
-- Quality Net: Ruff, Black, MyPy, Pyright, pytest guard the codebase; PowerShell scripts provision environment expectations.
-- Integration Points: JSON clone reports consumed by `x_0_make_all_x`, shared utilities from `x_make_common_x`, credential persistence via `x_make_persistent_env_var_x` when secrets are required.
+- External Hooks: Git CLI, optional GitHub REST access via token, HTTP tooling for metadata when enabled.
+- Quality Net: Ruff, Black, MyPy, Pyright, pytest, and supporting PowerShell scripts for environment assumptions.
+- Integration Points: JSON reports consumed by `x_0_make_all_x`, helpers from `x_make_common_x`, and secret persistence from `x_make_persistent_env_var_x` when required.

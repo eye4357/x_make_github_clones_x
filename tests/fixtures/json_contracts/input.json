@@ -1,0 +1,15 @@
+{
+  "command": "x_make_github_clones_x",
+  "parameters": {
+    "username": "eye4357",
+    "target_dir": "C:/x_runner_x",
+    "shallow": false,
+    "include_forks": true,
+    "force_reclone": false,
+    "names": [
+      "x_0_make_all_x"
+    ],
+    "token": null,
+    "include_private": true
+  }
+}
