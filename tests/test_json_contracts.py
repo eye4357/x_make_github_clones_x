@@ -1,3 +1,5 @@
+# ruff: noqa: S101
+
 from __future__ import annotations
 
 import json
@@ -86,7 +88,7 @@ def test_main_json_runs_successfully(
     )
 
     def fake_fetch(
-        self,
+        _self: object,
         username: str | None = None,
         *,
         include_forks: bool | None = None,
@@ -94,7 +96,7 @@ def test_main_json_runs_successfully(
         _ = (username, include_forks)
         return [repo]
 
-    def fake_attempt(self, repo_dir: Path, git_url: str) -> bool:
+    def fake_attempt(_self: object, repo_dir: Path, git_url: str) -> bool:
         repo_dir.mkdir(parents=True, exist_ok=True)
         _ = git_url
         return True
@@ -103,7 +105,7 @@ def test_main_json_runs_successfully(
         payload_data: dict[str, object],
         *,
         base_dir: Path | str,
-        timestamp: object | None = None,
+        _timestamp: object | None = None,
     ) -> Path:
         base = Path(base_dir)
         report_path = base / "reports" / "run.json"
@@ -165,7 +167,7 @@ def test_main_json_restores_allow_token_clone_env(
     monkeypatch.setenv(x_cls_make_github_clones_x.ALLOW_TOKEN_CLONE_ENV, "1")
 
     def fake_fetch(
-        self,
+        _self: object,
         username: str | None = None,
         *,
         include_forks: bool | None = None,
@@ -173,7 +175,7 @@ def test_main_json_restores_allow_token_clone_env(
         _ = (username, include_forks)
         return [repo]
 
-    def fake_attempt(self, repo_dir: Path, git_url: str) -> bool:
+    def fake_attempt(_self: object, repo_dir: Path, git_url: str) -> bool:
         repo_dir.mkdir(parents=True, exist_ok=True)
         _ = git_url
         return True
@@ -182,7 +184,7 @@ def test_main_json_restores_allow_token_clone_env(
         payload_data: dict[str, object],
         *,
         base_dir: Path | str,
-        timestamp: object | None = None,
+        _timestamp: object | None = None,
     ) -> Path:
         base = Path(base_dir)
         report_path = base / "reports" / "run.json"

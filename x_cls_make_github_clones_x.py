@@ -232,14 +232,12 @@ def _failure_payload(
     payload: dict[str, object] = {"status": "failure", "message": message}
     if details:
         payload["details"] = dict(details)
-    try:
+    with suppress(ValidationError):
         validate_payload(payload, ERROR_SCHEMA)
-    except ValidationError:
-        pass
     return payload
 
 
-def _coerce_bool(value: object, default: bool) -> bool:
+def _coerce_bool(value: object, *, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -269,11 +267,11 @@ def _apply_allow_token_clone_env(value: object) -> tuple[str | None, bool]:
     if isinstance(value, bool):
         os.environ[env_name] = "1" if value else "0"
     elif isinstance(value, str):
-        os.environ[env_name] = "1" if _coerce_bool(value, False) else "0"
+        os.environ[env_name] = "1" if _coerce_bool(value, default=False) else "0"
     return original, original_present
 
 
-def _restore_allow_token_clone_env(original: str | None, present: bool) -> None:
+def _restore_allow_token_clone_env(original: str | None, *, present: bool) -> None:
     env_name = x_cls_make_github_clones_x.ALLOW_TOKEN_CLONE_ENV
     if present:
         if original is not None:
@@ -1179,10 +1177,13 @@ def main_json(
         )
     target_dir_path = Path(target_dir_str)
 
-    shallow = _coerce_bool(parameters.get("shallow"), False)
-    include_forks = _coerce_bool(parameters.get("include_forks"), False)
-    force_reclone = _coerce_bool(parameters.get("force_reclone"), False)
-    include_private = _coerce_bool(parameters.get("include_private"), True)
+    shallow = _coerce_bool(parameters.get("shallow"), default=False)
+    include_forks = _coerce_bool(parameters.get("include_forks"), default=False)
+    force_reclone = _coerce_bool(parameters.get("force_reclone"), default=False)
+    include_private = _coerce_bool(
+        parameters.get("include_private"),
+        default=True,
+    )
     names_param = _extract_names(parameters.get("names"))
 
     token_obj = parameters.get("token")
@@ -1228,7 +1229,10 @@ def main_json(
         )
     finally:
         if allow_override:
-            _restore_allow_token_clone_env(original_env_value, original_env_present)
+            _restore_allow_token_clone_env(
+                original_env_value,
+                present=original_env_present,
+            )
 
     try:
         validate_payload(result_payload, OUTPUT_SCHEMA)

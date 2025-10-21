@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from .x_cls_make_github_clones_x import (  # re-export public surface
+# Re-export public surface for convenient imports.
+from x_make_github_clones_x.x_cls_make_github_clones_x import (
     RepoRecord,
     main_json,
     resolve_workspace_root,
