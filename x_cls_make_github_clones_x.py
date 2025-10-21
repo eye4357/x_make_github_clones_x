@@ -32,6 +32,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, MutableMapping
     from http.client import HTTPResponse
 
+    from x_make_common_x.stage_progress import RepoProgressReporter
+
 from jsonschema import ValidationError
 from x_make_common_x.json_contracts import validate_payload
 
@@ -360,6 +362,7 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
         self._last_run_report_path: Path | None = None
         self._latest_run_report: dict[str, object] | None = None
         self._reports_base_dir: Path = PACKAGE_ROOT
+        self.repo_progress_writer: RepoProgressReporter | None = None
 
     @property
     def last_run_report_path(self) -> Path | None:
@@ -376,6 +379,9 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
 
     def set_report_base_dir(self, base_dir: Path | str) -> None:
         self._reports_base_dir = Path(base_dir)
+
+    def set_repo_progress_writer(self, writer: RepoProgressReporter | None) -> None:
+        self.repo_progress_writer = writer
 
     def _request_json(
         self, url: str, headers: dict[str, str] | None = None
@@ -761,7 +767,22 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
         successful_names: list[str] = []
         used_token_clone = bool(self.token and self.allow_token_clone)
 
+        progress_writer = self.repo_progress_writer
+
         if fetch_error is None:
+            if progress_writer is not None:
+                for repo in repos:
+                    repo_key = repo.full_name or repo.name or repo.clone_url or "<unknown>"
+                    repo_path = dest_path / (repo.name or repo_key)
+                    progress_writer.record_pending(
+                        repo_key,
+                        display_name=repo.full_name or repo.name,
+                        metadata={
+                            "target_path": str(repo_path),
+                            "source_https": repo.clone_url or None,
+                            "source_ssh": repo.ssh_url or None,
+                        },
+                    )
             for repo in repos:
                 name = repo.name
                 if not name:
@@ -771,6 +792,19 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
                 git_url = self._repo_clone_url(repo)
                 status = "skipped"
                 error_message: str | None = None
+                repo_key = repo.full_name or name
+                display_name = repo.full_name or name
+                base_metadata = {
+                    "target_path": str(repo_path),
+                    "source_https": repo.clone_url or None,
+                    "source_ssh": repo.ssh_url or None,
+                }
+                if progress_writer is not None:
+                    progress_writer.record_start(
+                        repo_key,
+                        display_name=display_name,
+                        metadata=base_metadata,
+                    )
 
                 if not git_url:
                     _error(f"missing clone URL for {name}")
@@ -803,6 +837,42 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
                 if error_message:
                     repo_entry["error"] = error_message
                 repo_entries.append(repo_entry)
+
+                if progress_writer is not None:
+                    progress_meta = dict(base_metadata)
+                    progress_meta.update(
+                        {
+                            "status": status,
+                            "used_token_clone": used_token_clone and bool(repo.clone_url),
+                            "duration_seconds": round(duration, 3),
+                        }
+                    )
+                    if error_message:
+                        progress_meta["error"] = error_message
+                    if status == "updated":
+                        progress_writer.record_success(
+                            repo_key,
+                            display_name=display_name,
+                            metadata=progress_meta,
+                            messages=["Repository synchronized."],
+                        )
+                    elif status in {"failed", "missing_clone_url"}:
+                        failure_message = (
+                            "Clone/update failed." if status == "failed" else "Missing clone URL."
+                        )
+                        progress_writer.record_failure(
+                            repo_key,
+                            display_name=display_name,
+                            metadata=progress_meta,
+                            messages=[failure_message],
+                        )
+                    else:
+                        progress_writer.record_skipped(
+                            repo_key,
+                            display_name=display_name,
+                            metadata=progress_meta,
+                            messages=[f"Status: {status}"],
+                        )
 
         completed_at = datetime.now(UTC)
         summary: dict[str, object] = {
@@ -1003,6 +1073,7 @@ def synchronize_workspace(  # noqa: PLR0913
     include_forks: bool,
     force_reclone: bool,
     ctx: object | None = None,
+    progress_writer: RepoProgressReporter | None = None,
 ) -> x_cls_make_github_clones_x:
     """Instantiate and run the clones manager for the provided options."""
 
@@ -1014,6 +1085,12 @@ def synchronize_workspace(  # noqa: PLR0913
         force_reclone=force_reclone,
         ctx=ctx,
     )
+    if progress_writer is not None:
+        setter = getattr(cloner, "set_repo_progress_writer", None)
+        if callable(setter):
+            setter(progress_writer)
+        else:
+            cloner.repo_progress_writer = progress_writer
     try:
         _run_cloner(cloner, username=username, target_dir=target_dir)
     except (
