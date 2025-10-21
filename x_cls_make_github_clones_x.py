@@ -253,7 +253,9 @@ def _coerce_bool(value: object, default: bool) -> bool:
 
 def _extract_names(raw: object) -> list[str] | str | None:
     if isinstance(raw, list):
-        cleaned = [entry.strip() for entry in raw if isinstance(entry, str) and entry.strip()]
+        cleaned = [
+            entry.strip() for entry in raw if isinstance(entry, str) and entry.strip()
+        ]
         return cleaned if cleaned else None
     if isinstance(raw, str) and raw.strip():
         return raw.strip()
@@ -772,7 +774,9 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
         if fetch_error is None:
             if progress_writer is not None:
                 for repo in repos:
-                    repo_key = repo.full_name or repo.name or repo.clone_url or "<unknown>"
+                    repo_key = (
+                        repo.full_name or repo.name or repo.clone_url or "<unknown>"
+                    )
                     repo_path = dest_path / (repo.name or repo_key)
                     progress_writer.record_pending(
                         repo_key,
@@ -843,7 +847,8 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
                     progress_meta.update(
                         {
                             "status": status,
-                            "used_token_clone": used_token_clone and bool(repo.clone_url),
+                            "used_token_clone": used_token_clone
+                            and bool(repo.clone_url),
                             "duration_seconds": round(duration, 3),
                         }
                     )
@@ -858,7 +863,9 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
                         )
                     elif status in {"failed", "missing_clone_url"}:
                         failure_message = (
-                            "Clone/update failed." if status == "failed" else "Missing clone URL."
+                            "Clone/update failed."
+                            if status == "failed"
+                            else "Missing clone URL."
                         )
                         progress_writer.record_failure(
                             repo_key,
@@ -1142,7 +1149,9 @@ def resolve_workspace_root(
     return root_path
 
 
-def main_json(payload: Mapping[str, object], *, ctx: object | None = None) -> dict[str, object]:
+def main_json(
+    payload: Mapping[str, object], *, ctx: object | None = None
+) -> dict[str, object]:
     try:
         validate_payload(payload, INPUT_SCHEMA)
     except ValidationError as exc:
@@ -1165,8 +1174,8 @@ def main_json(payload: Mapping[str, object], *, ctx: object | None = None) -> di
     if isinstance(target_dir_obj, str) and target_dir_obj:
         target_dir_str = target_dir_obj
     else:
-        target_dir_str = (
-            x_cls_make_github_clones_x.DEFAULT_TARGET_DIR or str(_repo_parent_root())
+        target_dir_str = x_cls_make_github_clones_x.DEFAULT_TARGET_DIR or str(
+            _repo_parent_root()
         )
     target_dir_path = Path(target_dir_str)
 
@@ -1253,9 +1262,7 @@ def _load_json_payload(file_path: str | None) -> Mapping[str, object]:
 
 
 def _run_json_cli(args: Sequence[str]) -> None:
-    parser = argparse.ArgumentParser(
-        description="x_make_github_clones_x JSON runner"
-    )
+    parser = argparse.ArgumentParser(description="x_make_github_clones_x JSON runner")
     parser.add_argument(
         "--json",
         action="store_true",
