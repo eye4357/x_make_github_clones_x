@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 import os
 import sys
-from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from x_make_common_x.json_contracts import validate_payload, validate_schema
@@ -18,19 +17,14 @@ from x_make_github_clones_x.json_contracts import (
     INPUT_SCHEMA,
     OUTPUT_SCHEMA,
 )
-from x_make_github_clones_x.x_cls_make_github_clones_x import (
-    RepoRecord,
-    main_json,
-)
+from x_make_github_clones_x.x_cls_make_github_clones_x import RepoRecord, main_json
 
 clones_module = sys.modules["x_make_github_clones_x.x_cls_make_github_clones_x"]
 
 if TYPE_CHECKING:
     from _pytest.monkeypatch import MonkeyPatch
-else:
-    pytest = cast("Any", pytest)
-
-fixture = cast("Callable[..., Any]", pytest.fixture)
+else:  # pragma: no cover - runtime typing fallback
+    MonkeyPatch = object
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "json_contracts"
 
@@ -41,17 +35,17 @@ def _load_fixture(name: str) -> dict[str, object]:
     return cast("dict[str, object]", data)
 
 
-@fixture(scope="module")
+@pytest.fixture(scope="module")
 def sample_input() -> dict[str, object]:
     return _load_fixture("input")
 
 
-@fixture(scope="module")
+@pytest.fixture(scope="module")
 def sample_output() -> dict[str, object]:
     return _load_fixture("output")
 
 
-@fixture(scope="module")
+@pytest.fixture(scope="module")
 def sample_error() -> dict[str, object]:
     return _load_fixture("error")
 
