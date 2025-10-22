@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -29,6 +30,8 @@ if TYPE_CHECKING:
 else:
     pytest = cast("Any", pytest)
 
+fixture = cast("Callable[..., Any]", pytest.fixture)
+
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "json_contracts"
 
 
@@ -38,17 +41,17 @@ def _load_fixture(name: str) -> dict[str, object]:
     return cast("dict[str, object]", data)
 
 
-@pytest.fixture(scope="module")
+@fixture(scope="module")
 def sample_input() -> dict[str, object]:
     return _load_fixture("input")
 
 
-@pytest.fixture(scope="module")
+@fixture(scope="module")
 def sample_output() -> dict[str, object]:
     return _load_fixture("output")
 
 
-@pytest.fixture(scope="module")
+@fixture(scope="module")
 def sample_error() -> dict[str, object]:
     return _load_fixture("error")
 

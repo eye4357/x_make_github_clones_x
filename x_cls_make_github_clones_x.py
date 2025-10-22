@@ -796,7 +796,7 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
                 error_message: str | None = None
                 repo_key = repo.full_name or name
                 display_name = repo.full_name or name
-                base_metadata = {
+                base_metadata: dict[str, object] = {
                     "target_path": str(repo_path),
                     "source_https": repo.clone_url or None,
                     "source_ssh": repo.ssh_url or None,
@@ -841,7 +841,7 @@ class x_cls_make_github_clones_x(BaseMake):  # noqa: N801
                 repo_entries.append(repo_entry)
 
                 if progress_writer is not None:
-                    progress_meta = dict(base_metadata)
+                    progress_meta: dict[str, object] = dict(base_metadata)
                     progress_meta.update(
                         {
                             "status": status,
