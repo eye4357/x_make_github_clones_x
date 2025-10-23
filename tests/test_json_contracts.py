@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import os
 import sys
+import typing
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from types import ModuleType
+from typing import TYPE_CHECKING, ParamSpec, TypeVar, cast
 
 import pytest
 from x_make_common_x.json_contracts import validate_payload, validate_schema
@@ -19,33 +21,61 @@ from x_make_github_clones_x.json_contracts import (
 )
 from x_make_github_clones_x.x_cls_make_github_clones_x import RepoRecord, main_json
 
-clones_module = sys.modules["x_make_github_clones_x.x_cls_make_github_clones_x"]
+clones_module: ModuleType = sys.modules[
+    "x_make_github_clones_x.x_cls_make_github_clones_x"
+]
 
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from _pytest.monkeypatch import MonkeyPatch
 else:  # pragma: no cover - runtime typing fallback
+    Callable = typing.Callable
     MonkeyPatch = object
+
+
+if TYPE_CHECKING:
+
+    def typed_fixture(
+        *_args: object, **_kwargs: object
+    ) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]: ...
+
+else:
+
+    def typed_fixture(
+        *args: object, **kwargs: object
+    ) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
+        def _decorate(func: Callable[_P, _T]) -> Callable[_P, _T]:
+            decorated = pytest.fixture(*args, **kwargs)(func)
+            return cast("Callable[_P, _T]", decorated)
+
+        return _decorate
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "json_contracts"
 
 
 def _load_fixture(name: str) -> dict[str, object]:
     with (FIXTURE_DIR / f"{name}.json").open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
+        data: object = json.load(handle)
+    if not isinstance(data, dict):
+        message = f"fixture '{name}' must be a JSON object"
+        raise TypeError(message)
     return cast("dict[str, object]", data)
 
 
-@pytest.fixture(scope="module")
+@typed_fixture(scope="module")
 def sample_input() -> dict[str, object]:
     return _load_fixture("input")
 
 
-@pytest.fixture(scope="module")
+@typed_fixture(scope="module")
 def sample_output() -> dict[str, object]:
     return _load_fixture("output")
 
 
-@pytest.fixture(scope="module")
+@typed_fixture(scope="module")
 def sample_error() -> dict[str, object]:
     return _load_fixture("error")
 
@@ -70,11 +100,15 @@ def test_main_json_runs_successfully(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    payload = json.loads(json.dumps(sample_input))
+    payload = cast("dict[str, object]", json.loads(json.dumps(sample_input)))
+    parameters_obj = payload.get("parameters")
+    assert isinstance(parameters_obj, dict)
+    parameters = cast("dict[str, object]", parameters_obj)
+
     target_dir = tmp_path / "clones"
-    payload["parameters"]["target_dir"] = str(target_dir)
-    payload["parameters"]["username"] = "octocat"
-    payload["parameters"]["names"] = ["demo"]
+    parameters["target_dir"] = str(target_dir)
+    parameters["username"] = "octocat"
+    parameters["names"] = ["demo"]
 
     repo = RepoRecord(
         name="demo",
@@ -140,7 +174,10 @@ def test_main_json_runs_successfully(
     assert repos_obj, "repo list should not be empty"
     first_repo = repos_obj[0]
     assert isinstance(first_repo, dict)
-    assert first_repo.get("status") == "updated"
+    first_repo_data = cast("dict[str, object]", first_repo)
+    status_value = first_repo_data.get("status")
+    assert isinstance(status_value, str)
+    assert status_value == "updated"
 
 
 def test_main_json_restores_allow_token_clone_env(
@@ -148,10 +185,14 @@ def test_main_json_restores_allow_token_clone_env(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    payload = json.loads(json.dumps(sample_input))
-    payload["parameters"]["target_dir"] = str(tmp_path / "clones")
-    payload["parameters"]["allow_token_clone"] = False
-    payload["parameters"]["names"] = ["demo"]
+    payload = cast("dict[str, object]", json.loads(json.dumps(sample_input)))
+    parameters_obj = payload.get("parameters")
+    assert isinstance(parameters_obj, dict)
+    parameters = cast("dict[str, object]", parameters_obj)
+
+    parameters["target_dir"] = str(tmp_path / "clones")
+    parameters["allow_token_clone"] = False
+    parameters["names"] = ["demo"]
 
     repo = RepoRecord(
         name="demo",
@@ -200,6 +241,7 @@ def test_main_json_restores_allow_token_clone_env(
     assert isinstance(invocation_obj, dict)
     invocation = cast("dict[str, object]", invocation_obj)
     allow_token_value = invocation.get("allow_token_clone")
+    assert isinstance(allow_token_value, bool)
     assert allow_token_value is False
     assert os.environ[x_cls_make_github_clones_x.ALLOW_TOKEN_CLONE_ENV] == "1"
 

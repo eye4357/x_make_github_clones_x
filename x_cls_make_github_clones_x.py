@@ -1091,11 +1091,7 @@ def synchronize_workspace(  # noqa: PLR0913
         ctx=ctx,
     )
     if progress_writer is not None:
-        setter = getattr(cloner, "set_repo_progress_writer", None)
-        if callable(setter):
-            setter(progress_writer)
-        else:
-            cloner.repo_progress_writer = progress_writer
+        cloner.set_repo_progress_writer(progress_writer)
     try:
         _run_cloner(cloner, username=username, target_dir=target_dir)
     except (
@@ -1278,13 +1274,17 @@ def _run_json_cli(args: Sequence[str]) -> None:
         help="Path to JSON payload file",
     )
     parsed = parser.parse_args(args)
+    json_flag_obj = cast("object", getattr(parsed, "json", False))
+    json_flag = bool(json_flag_obj)
+    json_file_obj = cast("object", getattr(parsed, "json_file", None))
+    json_file = json_file_obj if isinstance(json_file_obj, str) and json_file_obj else None
 
-    if not (parsed.json or parsed.json_file):
+    if not (json_flag or json_file):
         parser.error("JSON input required. Use --json for stdin or --json-file <path>.")
 
-    payload = _load_json_payload(parsed.json_file if parsed.json_file else None)
+    payload = _load_json_payload(json_file)
     result = main_json(payload)
-    json.dump(result, sys.stdout, indent=2)
+    sys.stdout.write(json.dumps(result, indent=2))
     sys.stdout.write("\n")
 
 
