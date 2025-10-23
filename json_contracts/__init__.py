@@ -9,6 +9,6 @@ from ._impl import ERROR_SCHEMA, INPUT_SCHEMA, OUTPUT_SCHEMA
 
 # Preserve legacy import path "json_contracts" for downstream tooling.
 if not TYPE_CHECKING:
-	_sys.modules.setdefault("json_contracts", _sys.modules[__name__])
+    _sys.modules.setdefault("json_contracts", _sys.modules[__name__])
 
 __all__ = ["ERROR_SCHEMA", "INPUT_SCHEMA", "OUTPUT_SCHEMA"]
