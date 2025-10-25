@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import importlib
 import json
 import os
 import shutil
@@ -34,7 +35,6 @@ if TYPE_CHECKING:
 
     from x_make_common_x.stage_progress import RepoProgressReporter
 
-from jsonschema import ValidationError
 from x_make_common_x.json_contracts import validate_payload
 
 from x_make_github_clones_x.json_contracts import (
@@ -42,6 +42,24 @@ from x_make_github_clones_x.json_contracts import (
     INPUT_SCHEMA,
     OUTPUT_SCHEMA,
 )
+
+
+class _SchemaValidationError(Exception):
+    message: str
+    path: Sequence[object]
+    schema_path: Sequence[object]
+
+
+class _JsonSchemaModule(Protocol):
+    ValidationError: type[_SchemaValidationError]
+
+
+def _load_validation_error() -> type[_SchemaValidationError]:
+    module = cast("_JsonSchemaModule", importlib.import_module("jsonschema"))
+    return module.ValidationError
+
+
+JsonSchemaValidationError: type[_SchemaValidationError] = _load_validation_error()
 
 IsoformatTimestamp = Callable[[datetime | None], str]
 
@@ -232,7 +250,7 @@ def _failure_payload(
     payload: dict[str, object] = {"status": "failure", "message": message}
     if details:
         payload["details"] = dict(details)
-    with suppress(ValidationError):
+    with suppress(JsonSchemaValidationError):
         validate_payload(payload, ERROR_SCHEMA)
     return payload
 
@@ -1148,7 +1166,7 @@ def main_json(
 ) -> dict[str, object]:
     try:
         validate_payload(payload, INPUT_SCHEMA)
-    except ValidationError as exc:
+    except JsonSchemaValidationError as exc:
         return _failure_payload(
             "input payload failed validation",
             details={
@@ -1232,7 +1250,7 @@ def main_json(
 
     try:
         validate_payload(result_payload, OUTPUT_SCHEMA)
-    except ValidationError as exc:
+    except JsonSchemaValidationError as exc:
         return _failure_payload(
             "generated output failed schema validation",
             details={
@@ -1277,7 +1295,9 @@ def _run_json_cli(args: Sequence[str]) -> None:
     json_flag_obj = cast("object", getattr(parsed, "json", False))
     json_flag = bool(json_flag_obj)
     json_file_obj = cast("object", getattr(parsed, "json_file", None))
-    json_file = json_file_obj if isinstance(json_file_obj, str) and json_file_obj else None
+    json_file = (
+        json_file_obj if isinstance(json_file_obj, str) and json_file_obj else None
+    )
 
     if not (json_flag or json_file):
         parser.error("JSON input required. Use --json for stdin or --json-file <path>.")

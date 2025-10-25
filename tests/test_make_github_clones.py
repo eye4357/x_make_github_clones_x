@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, cast
 
-from x_make_github_clones_x.x_cls_make_github_clones_x import (
-    RepoRecord,
-    x_cls_make_github_clones_x,
-)
+from x_make_github_clones_x import x_cls_make_github_clones_x
+from x_make_github_clones_x.x_cls_make_github_clones_x import RepoRecord
+
+GithubClonesRunner = x_cls_make_github_clones_x
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -56,10 +56,10 @@ def _get_dict_list(payload: dict[str, object], key: str) -> list[dict[str, objec
 
 
 def test_fetch_repos_filters_forks_and_names(monkeypatch: MonkeyPatch) -> None:
-    client = x_cls_make_github_clones_x(username="octocat", names=["alpha"])
+    client = GithubClonesRunner(username="octocat", names=["alpha"])
 
     def fake_request_json(
-        _client: x_cls_make_github_clones_x,
+        _client: object,
         url: str,
         headers: dict[str, str] | None = None,
     ) -> list[dict[str, object]]:
@@ -82,7 +82,7 @@ def test_fetch_repos_filters_forks_and_names(monkeypatch: MonkeyPatch) -> None:
         ]
 
     monkeypatch.setattr(
-        x_cls_make_github_clones_x,
+        GithubClonesRunner,
         "_request_json",
         fake_request_json,
         raising=True,
@@ -104,18 +104,18 @@ def test_sync_reports_missing_clone_url(
         ssh_url=None,
         fork=False,
     )
-    client = x_cls_make_github_clones_x(username="octocat", target_dir=str(tmp_path))
+    client = GithubClonesRunner(username="octocat", target_dir=str(tmp_path))
     client.set_report_base_dir(tmp_path)
 
     def fake_fetch(
-        _client: x_cls_make_github_clones_x,
+        _client: object,
         _username: str | None = None,
         **_kwargs: object,
     ) -> list[RepoRecord]:
         return [missing, repo_record]
 
     monkeypatch.setattr(
-        x_cls_make_github_clones_x,
+        GithubClonesRunner,
         "fetch_repos",
         fake_fetch,
         raising=True,
@@ -124,7 +124,7 @@ def test_sync_reports_missing_clone_url(
     attempts: list[tuple[Path, str]] = []
 
     def fake_attempt(
-        _client: x_cls_make_github_clones_x,
+        _client: object,
         repo_dir: Path,
         git_url: str,
     ) -> bool:
@@ -132,7 +132,7 @@ def test_sync_reports_missing_clone_url(
         return True
 
     monkeypatch.setattr(
-        x_cls_make_github_clones_x,
+        GithubClonesRunner,
         "_attempt_update",
         fake_attempt,
         raising=True,
@@ -169,25 +169,25 @@ def test_sync_success(
     tmp_path: Path,
 ) -> None:
     repo_record = _make_repo_record()
-    client = x_cls_make_github_clones_x(username="octocat", target_dir=str(tmp_path))
+    client = GithubClonesRunner(username="octocat", target_dir=str(tmp_path))
     client.set_report_base_dir(tmp_path)
 
     def fake_fetch(
-        _client: x_cls_make_github_clones_x,
+        _client: object,
         _username: str | None = None,
         **_kwargs: object,
     ) -> list[RepoRecord]:
         return [repo_record]
 
     monkeypatch.setattr(
-        x_cls_make_github_clones_x,
+        GithubClonesRunner,
         "fetch_repos",
         fake_fetch,
         raising=True,
     )
 
     def fake_attempt(
-        _client: x_cls_make_github_clones_x,
+        _client: object,
         repo_dir: Path,
         git_url: str,
     ) -> bool:
@@ -196,7 +196,7 @@ def test_sync_success(
         return True
 
     monkeypatch.setattr(
-        x_cls_make_github_clones_x,
+        GithubClonesRunner,
         "_attempt_update",
         fake_attempt,
         raising=True,
@@ -226,8 +226,8 @@ def test_sync_uses_token_when_allowed(
     tmp_path: Path,
 ) -> None:
     repo_record = _make_repo_record()
-    monkeypatch.setenv(x_cls_make_github_clones_x.ALLOW_TOKEN_CLONE_ENV, "1")
-    client = x_cls_make_github_clones_x(
+    monkeypatch.setenv(GithubClonesRunner.ALLOW_TOKEN_CLONE_ENV, "1")
+    client = GithubClonesRunner(
         username="octocat",
         target_dir=str(tmp_path),
         token=TEST_TOKEN_VALUE,
@@ -235,14 +235,14 @@ def test_sync_uses_token_when_allowed(
     client.set_report_base_dir(tmp_path)
 
     def fake_fetch(
-        _client: x_cls_make_github_clones_x,
+        _client: object,
         _username: str | None = None,
         **_kwargs: object,
     ) -> list[RepoRecord]:
         return [repo_record]
 
     monkeypatch.setattr(
-        x_cls_make_github_clones_x,
+        GithubClonesRunner,
         "fetch_repos",
         fake_fetch,
         raising=True,
@@ -251,7 +251,7 @@ def test_sync_uses_token_when_allowed(
     urls: list[str] = []
 
     def fake_attempt(
-        _client: x_cls_make_github_clones_x,
+        _client: object,
         _repo_dir: Path,
         git_url: str,
     ) -> bool:
@@ -259,7 +259,7 @@ def test_sync_uses_token_when_allowed(
         return True
 
     monkeypatch.setattr(
-        x_cls_make_github_clones_x,
+        GithubClonesRunner,
         "_attempt_update",
         fake_attempt,
         raising=True,
@@ -290,11 +290,11 @@ def test_sync_uses_token_when_allowed(
 
 
 def test_sync_records_fetch_error(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
-    client = x_cls_make_github_clones_x(username="octocat", target_dir=str(tmp_path))
+    client = GithubClonesRunner(username="octocat", target_dir=str(tmp_path))
     client.set_report_base_dir(tmp_path)
 
     def fake_fetch(
-        _client: x_cls_make_github_clones_x,
+        _client: object,
         _username: str | None = None,
         **_kwargs: object,
     ) -> list[RepoRecord]:
@@ -302,7 +302,7 @@ def test_sync_records_fetch_error(monkeypatch: MonkeyPatch, tmp_path: Path) -> N
         raise RuntimeError(message)
 
     monkeypatch.setattr(
-        x_cls_make_github_clones_x,
+        GithubClonesRunner,
         "fetch_repos",
         fake_fetch,
         raising=True,

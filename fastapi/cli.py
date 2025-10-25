@@ -2,23 +2,22 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from importlib import import_module
-from typing import Any, cast
+from typing import Protocol, cast
 
 DispatchMain = Callable[[Sequence[str] | None], None]
 
 
 def _load_dispatch_main() -> DispatchMain:
+    class _CliModule(Protocol):
+        main: DispatchMain
+
     try:
-        module = import_module("fastapi_cli.cli")
+        module = cast("_CliModule", import_module("fastapi_cli.cli"))
     except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
         message = "fastapi-cli is required to use this entrypoint"
         raise RuntimeError(message) from exc
 
-    main_obj: Any = getattr(module, "main", None)
-    if not callable(main_obj):
-        message = "fastapi_cli.cli.main must be callable"
-        raise TypeError(message)
-    return cast("DispatchMain", main_obj)
+    return module.main
 
 
 def main(argv: Sequence[str] | None = None) -> None:

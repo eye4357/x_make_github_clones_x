@@ -2,32 +2,35 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
-import sys
 import typing
 from pathlib import Path
-from types import ModuleType
 from typing import TYPE_CHECKING, ParamSpec, TypeVar, cast
 
 import pytest
 from x_make_common_x.json_contracts import validate_payload, validate_schema
 
-from x_make_github_clones_x import x_cls_make_github_clones_x
 from x_make_github_clones_x.json_contracts import (
     ERROR_SCHEMA,
     INPUT_SCHEMA,
     OUTPUT_SCHEMA,
 )
-from x_make_github_clones_x.x_cls_make_github_clones_x import RepoRecord, main_json
+from x_make_github_clones_x.x_cls_make_github_clones_x import (
+    RepoRecord,
+    main_json,
+    x_cls_make_github_clones_x,
+)
 
-clones_module: ModuleType = sys.modules[
+clones_module: types.ModuleType = importlib.import_module(
     "x_make_github_clones_x.x_cls_make_github_clones_x"
-]
+)
 
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
 if TYPE_CHECKING:
+    import types
     from collections.abc import Callable
 
     from _pytest.monkeypatch import MonkeyPatch
@@ -52,6 +55,7 @@ else:
             return cast("Callable[_P, _T]", decorated)
 
         return _decorate
+
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "json_contracts"
 
