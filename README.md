@@ -33,18 +33,8 @@ Clone runs deposit their evidence under `reports/` and update `make_all_summary.
 | Static contract scan | `python -m pyright` |
 | Functional verification | `pytest` |
 
-## System Linkage
-- [Changelog](./CHANGELOG.md)
-- [Road to 0.20.4 Engineering Proposal](../x_0_make_all_x/Change%20Control/0.20.4/Road%20to%200.20.4%20Engineering%20Proposal.md)
-- [Road to 0.20.3 Engineering Proposal](../x_0_make_all_x/Change%20Control/0.20.3/Road%20to%200.20.3%20Engineering%20Proposal.md)
-
 ## Reconstitution Drill
 During the monthly rebuild I wipe a machine, replay `LAB_FROM_SCRATCH.md`, and run this clone driver. Git version, elapsed minutes, error counts, and the resulting JSON all get logged. If the orchestrator cannot hydrate from those artefacts, the defect is mine to eliminate before the window closes.
-
-## Cross-Referenced Assets
-- [x_make_common_x](../x_make_common_x/README.md) — shared logging and subprocess scaffolding.
-- [x_make_github_visitor_x](../x_make_github_visitor_x/README.md) — consumes freshly cloned repos for compliance sweeps.
-- [x_0_make_all_x](../x_0_make_all_x/README.md) — orchestrates clone waves across the release pipeline.
 
 ## Conduct Code
 Document every new clone tactic in Change Control. Guard credentials, rotate tokens, and capture anomalies before they cascade into the supply chain. This project tolerates zero shadow steps.
