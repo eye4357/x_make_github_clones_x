@@ -1,0 +1,24 @@
+[project]
+name = "x_4357_make_github_clones_x"
+version = "0.20.7"
+description = "Makes GitHub repository clones."
+authors = [ { name = "RRGM", email = "eye4357@outlook.com" } ]
+license = { text = "MIT License (c) 2025 RRGM (Software Tech Lead of the Primus Pilus Night Watch AI Corporation)" }
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://example.com/x_make_github_clones_x"
+
+[tool.hatch.build]
+exclude = [".mypy_cache", ".ruff_cache", ".pytest_cache", "tests", "reports", "fastapi", "fastapi_cli"]
+
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
