@@ -1,0 +1,2 @@
+x_make_telemetry_vector_x-0.1.0-py3-none-any.whl f5393430718d646a07268e785f6257ded4d698d6b4fc84f86b52d521ee647156
+x_make_telemetry_vector_x-0.1.0.tar.gz e1f432509fedae7c4e75f2ed7f1029bf63ef760365e0e8a68bad7ccd11b4af1c

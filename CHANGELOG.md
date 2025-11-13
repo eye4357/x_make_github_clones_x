@@ -1,6 +1,15 @@
-# x_make_github_clones_x — Production Ledger
+# x_make_telemetry_vector_x — Production Ledger
 
-I record every change to this clone engine here. Entries adhere to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning so audits can reconstruct the exact state of the supply line at any point in time.
+I record every change to this telemetry normaliser here. Entries adhere to [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning so audits can reconstruct the exact state of the pipeline at any point in time.
+
+## [0.1.0] - 2025-11-12
+### Added
+- Introduced the `x_make_telemetry_vector_x` package with Pydantic schema and `normalize_payload` helper.
+- Shipped packaging automation (`scripts/package_telemetry_vector.py`) and manifest support for repeatable builds.
+- Authored adoption and metadata blueprints as part of the 0.20.13 cleanup offensive.
+
+### Changed
+- Repointed project metadata, README, and evidence logs from clone orchestration to telemetry normalisation.
 
 ## [0.20.4] - 2025-10-15
 ### Changed

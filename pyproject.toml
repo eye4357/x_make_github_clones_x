@@ -1,24 +1,33 @@
 [project]
-name = "x_4357_make_github_clones_x"
-version = "0.20.7"
-description = "Makes GitHub repository clones."
-authors = [ { name = "RRGM", email = "eye4357@outlook.com" } ]
-license = { text = "MIT License (c) 2025 RRGM (Software Tech Lead of the Primus Pilus Night Watch AI Corporation)" }
+name = "x_make_telemetry_vector_x"
+version = "0.1.0"
+description = "Shared telemetry normalization utilities for the visitor constellation."
+authors = [{ name = "Heisenberg Change Control", email = "labs@legatus.internal" }]
+license = "LicenseRef-Proprietary"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
-  "Operating System :: OS Independent"
+  "Programming Language :: Python :: 3.10",
+  "Typing :: Typed",
+  "Intended Audience :: Developers"
 ]
-dependencies = []
+dependencies = [
+  "pydantic>=2.6",
+  "typing-extensions>=4.9"
+]
 
 [project.urls]
-Homepage = "https://example.com/x_make_github_clones_x"
+Documentation = "https://docs.labs.internal/x_make_telemetry_vector_x"
+"Change Control" = "https://change-control.labs.internal/0.20.13/telemetry"
 
-[tool.hatch.build]
-exclude = [".mypy_cache", ".ruff_cache", ".pytest_cache", "tests", "reports", "fastapi", "fastapi_cli"]
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["x_make_telemetry_vector_x*"]
+
+[tool.setuptools.package-data]
+"x_make_telemetry_vector_x" = ["py.typed"]
 
 [build-system]
-requires = ["hatchling>=1.25.0"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
