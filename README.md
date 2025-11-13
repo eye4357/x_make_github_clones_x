@@ -1,62 +1,38 @@
-# x_make_telemetry_vector_x — Bonsai Discipline For Event Streams
+# x_make_github_clones_x — Repository Synchronisation Discipline
 
-The visitor constellation spews telemetry with the enthusiasm of a ruptured mainline. I built `x_make_telemetry_vector_x` so every service stops improvising envelopes and starts emitting disciplined payloads the command center can trust. Feed it a raw dict, get back a UTC-normalised shell with version tags, metadata, and the scars baked in.
+`x_make_github_clones_x` keeps a local working directory aligned with a curated
+set of GitHub repositories. It talks directly to the GitHub REST API, respects
+our visitor pipeline contracts, and writes machine-auditable run reports so the
+command center always knows what happened.
 
-## Mission Log
-- Canonicalise event identifiers, sources, actions, and timestamps without hand-written shims.
-- Stamp every record with a telemetry version and ingestion time so audits can reconstruct the blast radius of a bug.
-- Ship type hints and a Pydantic model so static analysis whines before production does.
-- Replace the copy-pasted normalisers littering orchestrators and visitors, one repo at a time.
+## Capabilities
+- Fetch repository metadata with optional name filters and fork inclusion.
+- Clone or update repositories on disk, with safe fallback for corrupt working
+	trees.
+- Emit JSON run reports that satisfy the `json_contracts` schemas used by the
+	visitor and release dashboards.
+- Honour `X_ALLOW_TOKEN_CLONE` so sensitive clones only happen when explicitly
+	authorised.
 
-## Instrumentation
-- Python 3.10 or newer.
-- `pydantic>=2.6` and `typing-extensions>=4.9` — already declared in `pyproject.toml`.
-- Ruff, Black, MyPy, and Pyright for the QA gauntlet; pytest for behavioural assurance.
-- Optional: cProfile via `scripts/profile_cpu.py` when you want proof that normalisation overhead stays negligible.
+## Quickstart
+1. `python -m venv .venv` then `\.venv\Scripts\Activate.ps1` on Windows.
+2. `pip install -e .[dev]` once dev extras are available, or `pip install -e .`
+	 for a minimal setup.
+3. `python -m x_make_github_clones_x.x_cls_make_github_clones_x --username eye4357`.
+4. Inspect reports under `reports/` for a full audit trail.
 
-## Operating Procedure
-1. Create your environment: `python -m venv .venv` then `\.venv\Scripts\Activate.ps1`.
-2. Install the tooling: `python -m pip install --upgrade pip build` followed by `pip install -e .[dev]` once we finish wiring extras.
-3. Normalise a payload:
-   ```python
-   from x_make_telemetry_vector_x import normalize_payload
-
-   envelope = normalize_payload({
-	   "id": "abc-123",
-	   "source": "visitor",
-	   "action": "ingest",
-	   "timestamp": "2025-11-12T10:30:00Z",
-	   "payload": {"repo": "x_make_common_x"},
-   })
-   ```
-4. Archive profiling and benchmark evidence under `Change Control/0.20.13/evidence/` before merging replacements.
-
-## Evidence Checks
+## Quality Gates
 | Check | Command |
 | --- | --- |
-| Formatting sweep | `python -m black .` |
-| Lint interrogation | `python -m ruff check .` |
-| Type audit | `python -m mypy .` |
-| Static contract scan | `python -m pyright` |
-| Unit tests | `pytest tests/test_telemetry_vector.py` |
-| Package build | `python scripts/package_telemetry_vector.py` |
+| Formatter | `python -m black .` |
+| Linter | `python -m ruff check .` |
+| Typing | `python -m mypy --package x_make_github_clones_x` |
+| Static Analysis | `python -m pyright` |
+| Tests | `pytest` |
 
-## Integration Doctrine
-- Replace any service-level normaliser with `normalize_payload` and log the before/after benchmarks in Change Control.
-- Keep `ingested_at` timestamps tied to UTC and document any downstream truncation before shipping.
-- Record adoption notes in `Change Control/0.20.13/evidence/x_make_telemetry_vector_x-adoption.md` for every repo you touch.
-- Legacy clone automation remains archived in-tree until the next freeze—do not revive it without my signature.
-
-## Sole Architect's Note
-I architected this package as part of the 0.20.13 cleanup offensive. No third-party improvisation, no half-measures. If a consumer leaks divergent telemetry again, the fault lies with whoever ignored this kit.
-
-## Staffing Reality Check
-- Reproducing this without the lab's LLM assistance demands a senior Python engineer fluent in Pydantic, telemetry pipelines, and QA automation.
-- Timeline: 4–5 engineer-weeks to reconstruct the schema, benchmarks, and evidence bundle to my standard.
-- Cost band: USD 35k–45k, excluding the operational burn.
-
-## Technical Footprint
-- Core Language: Python 3.10+ with `datetime`, `typing`, and Pydantic v2.
-- External Hooks: None beyond standard library and declared dependencies.
-- Quality Net: Ruff, Black, MyPy, Pyright, pytest.
-- Integration Points: `x_make_common_x`, the visitor orchestrators, and any service that wants telemetry consistency without growing yet another bonsai branch.
+## Change Control
+- Release notes live in `CHANGELOG.md`.
+- Run reports belong in `artifacts/reports/` when you stage evidence for a
+	change control bundle.
+- Telemetry normalisation moved to the dedicated `../x_make_telemetry_vector_x`
+	repository.

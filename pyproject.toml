@@ -1,32 +1,28 @@
 [project]
-name = "x_make_telemetry_vector_x"
-version = "0.1.0"
-description = "Shared telemetry normalization utilities for the visitor constellation."
+name = "x_make_github_clones_x"
+version = "0.20.14"
+description = "GitHub clone synchronisation utility with reporting hooks for the visitor pipeline."
 authors = [{ name = "Heisenberg Change Control", email = "labs@legatus.internal" }]
 license = "LicenseRef-Proprietary"
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.10",
-  "Typing :: Typed",
+  "Programming Language :: Python :: 3 :: Only",
+  "Environment :: Console",
   "Intended Audience :: Developers"
 ]
-dependencies = [
-  "pydantic>=2.6",
-  "typing-extensions>=4.9"
-]
+dependencies = []
 
 [project.urls]
-Documentation = "https://docs.labs.internal/x_make_telemetry_vector_x"
-"Change Control" = "https://change-control.labs.internal/0.20.13/telemetry"
+Documentation = "https://docs.labs.internal/x_make_github_clones_x"
+"Change Control" = "https://change-control.labs.internal/0.20.14/github-clones"
 
 [tool.setuptools.packages.find]
-where = ["src"]
-include = ["x_make_telemetry_vector_x*"]
+include = ["x_make_github_clones_x*"]
 
 [tool.setuptools.package-data]
-"x_make_telemetry_vector_x" = ["py.typed"]
+"x_make_github_clones_x" = ["py.typed"]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
